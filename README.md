@@ -14,14 +14,18 @@ geplant und umgesetzt mit Claude Code.
 Das Backend stellt die REST-API bereit (Auth per Token, Portfolios, Konten, Transaktionen,
 FIFO-Tranchen, Performance, Risiko, Vergleiche, Simulationen). Dieses Frontend konsumiert sie.
 
-## Geplanter Stack
+## Stack
 
-- **Vite** als Build-Tool und Dev-Server
-- **TypeScript** durchgehend
-- **React** mit **MUI v6** als Komponentenbibliothek
+- **Vite 8** als Build-Tool und Dev-Server
+- **React 19** mit **TypeScript** durchgehend, `strict` aktiv
+- **MUI 9** als Komponentenbibliothek, Light und Dark ueber CSS-Variablen
+- **React Query** fuer Server-State, **axios** fuer den HTTP-Zugriff
+- **Vitest** und **Testing Library** fuer Tests
 - Responsive Umsetzung: Tabellen werden auf kleinen Viewports zu Karten
 
-Details siehe `nachbau/planung/ui-ux-plan.md` und `architektur-plan.md`.
+Der UI/UX-Plan nennt MUI v6. Umgesetzt ist v9, Begruendung in
+`nachbau/planung/design-theme.md`, Abschnitt 1. Weitere Details in
+`nachbau/planung/ui-ux-plan.md`, `architektur-plan.md` und `design-theme.md`.
 
 ## Tickets
 
@@ -38,7 +42,23 @@ npm install
 npm run dev
 ```
 
-Das Backend muss dafuer lokal laufen (`localhost:8080`, siehe Backend-Repo).
+Das Backend muss dafuer lokal laufen (`localhost:8080`, siehe Backend-Repo). Der Dev-Server leitet
+`/api` dorthin weiter, weil das Backend keine CORS-Konfiguration hat und ein direkter Aufruf sonst
+vom Browser blockiert wuerde.
+
+| Befehl | Zweck |
+|---|---|
+| `npm run dev` | Dev-Server auf Port 5173 |
+| `npm test` | Tests einmal ausfuehren |
+| `npm run test:watch` | Tests im Watch-Modus |
+| `npm run coverage` | Tests mit Abdeckungsbericht |
+| `npm run typecheck` | `tsc -b` ohne Build |
+| `npm run lint` | oxlint |
+| `npm run build` | Typecheck plus Produktions-Build |
+
+Zu den Tests: die Farbtokens des Themes werden gegen die WCAG-Kontrastschwellen geprueft
+(`src/theme/palette.test.ts`). Wer eine Farbe im Theme aendert, muss damit rechnen, dass diese Tests
+anschlagen. Das ist Absicht, siehe `nachbau/planung/design-theme.md`, Abschnitt 9.
 
 ## Branch-Konvention
 
