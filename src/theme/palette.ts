@@ -15,11 +15,16 @@ export interface FinanceBadge {
  */
 export interface FinancePalette {
   /**
-   * Gewinn-**Zahlen** in Tabellen. Dunkler als `success.main`, weil `#16a34a` auf Weiss nur 3.30:1
-   * erreicht und damit WCAG AA fuer normalen Text verfehlt. Dieser Ton liegt bei 5.01:1.
+   * Gewinn-**Zahlen**. Dunkler als `success.main`, weil `#16a34a` auf Weiss nur 3.30:1 erreicht und
+   * damit WCAG AA fuer normalen Text verfehlt. Der gewaehlte Ton haelt AA auf allen drei
+   * Light-Flaechen: 7.13:1 auf der Karte, 6.68:1 auf der abgesetzten Flaeche, 6.30:1 auf dem
+   * Seitengrund. Der naechsthellere Ton `#15803d` waere auf dem Seitengrund mit 4.43:1 durchgefallen.
    */
   gainText: string
-  /** Verlust-Zahlen. `#dc2626` erreicht auf Weiss 4.83:1 und genuegt damit knapp. */
+  /**
+   * Verlust-Zahlen. Aus demselben Grund eine Stufe dunkler als `error.main`: `#dc2626` erreicht auf
+   * dem Seitengrund nur 4.27:1. Dieser Ton liegt dort bei 5.71:1.
+   */
   lossText: string
   /** Abgesetzte Flaeche fuer Tabellenkopf und Hover-Zeile. */
   surfaceMuted: string
@@ -40,10 +45,12 @@ export interface FinancePalette {
  * bis auf die zwei Kontrast-Korrekturen (`text.secondary`, `gainText`).
  */
 export const lightFinance: FinancePalette = {
-  gainText: '#15803d',
-  lossText: '#dc2626',
+  gainText: '#166534',
+  lossText: '#b91c1c',
   surfaceMuted: '#faf7f4',
-  badgeBuy: { background: '#dcfce7', color: '#15803d' },
+  // Badge-Schrift nutzt denselben Ton wie die Zahlen, damit es nicht zwei Gruen- und zwei Rottoene
+  // fuer dieselbe Bedeutung gibt.
+  badgeBuy: { background: '#dcfce7', color: '#166534' },
   badgeSell: { background: '#fee2e2', color: '#b91c1c' },
   badgeDividend: { background: '#dbeafe', color: '#1d4ed8' },
   chart: ['#2563eb', '#d97706', '#7c3aed', '#0891b2', '#16a34a', '#c026d3', '#65a30d', '#dc2626'],
