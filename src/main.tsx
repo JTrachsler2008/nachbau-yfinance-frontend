@@ -13,7 +13,7 @@ import { theme } from './theme/theme'
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Kursdaten aendern sich staendig, aber nicht sekuendlich. Eine halbe Minute vermeidet
+      // Kursdaten ändern sich ständig, aber nicht sekündlich. Eine halbe Minute vermeidet
       // Doppelabfragen beim Navigieren, ohne dass Werte sichtbar veralten.
       staleTime: 30_000,
       retry: 1,

@@ -2,8 +2,8 @@ import axios, { type AxiosInstance } from 'axios'
 
 /**
  * Fehlerstruktur des Backends. Entspricht `ErrorResponseDto` aus dem `GlobalExceptionHandler`
- * (Ticket YOUNGOITV-416), das fuer fachliche und technische Fehler dieselbe Struktur liefert.
- * `fieldErrors` ist nur bei Bean-Validation-Fehlern befuellt, sonst null.
+ * (Ticket YOUNGOITV-416), das für fachliche und technische Fehler dieselbe Struktur liefert.
+ * `fieldErrors` ist nur bei Bean-Validation-Fehlern befüllt, sonst null.
  */
 export interface BackendErrorBody {
   timestamp: string
@@ -14,8 +14,8 @@ export interface BackendErrorBody {
 }
 
 /**
- * Einheitlicher Fehlertyp fuer die UI. Die Komponenten sollen nicht mit `AxiosError` und dessen
- * verschachtelter `response.data`-Struktur arbeiten muessen.
+ * Einheitlicher Fehlertyp für die UI. Die Komponenten sollen nicht mit `AxiosError` und dessen
+ * verschachtelter `response.data`-Struktur arbeiten müssen.
  */
 export class ApiError extends Error {
   readonly status: number
@@ -35,17 +35,17 @@ export class ApiError extends Error {
 }
 
 /**
- * Basis-URL des Backends, konfigurierbar ueber `VITE_API_BASE_URL`.
+ * Basis-URL des Backends, konfigurierbar über `VITE_API_BASE_URL`.
  *
  * Standard ist der relative Pfad `/api`, den der Vite-Dev-Server auf `localhost:8080` weiterleitet
  * (siehe `vite.config.ts`). Der Umweg ist notwendig, weil das Backend keine CORS-Konfiguration hat
- * und ein direkter Aufruf von `localhost:5173` nach `localhost:8080` vom Browser blockiert wuerde.
+ * und ein direkter Aufruf von `localhost:5173` nach `localhost:8080` vom Browser blockiert würde.
  */
 export const apiBaseUrl: string = import.meta.env.VITE_API_BASE_URL ?? '/api'
 
 /**
  * Auth-Token bewusst nur im Speicher, nicht in `localStorage`. Der Architektur-Plan verlangt das
- * ausdruecklich (Behebung von SEC-1/SEC-2): ein Token in `localStorage` ist per XSS auslesbar.
+ * ausdrücklich (Behebung von SEC-1/SEC-2): ein Token in `localStorage` ist per XSS auslesbar.
  * Folge: nach einem Reload muss neu angemeldet werden, solange kein Refresh-Mechanismus existiert.
  */
 let authToken: string | null = null
@@ -76,7 +76,7 @@ apiClient.interceptors.response.use(
   (error: unknown) => Promise.reject(toApiError(error)),
 )
 
-/** Uebersetzt alles, was axios wirft, in einen `ApiError` mit der Message des Backends. */
+/** Übersetzt alles, was axios wirft, in einen `ApiError` mit der Message des Backends. */
 function toApiError(error: unknown): ApiError {
   if (!axios.isAxiosError<Partial<BackendErrorBody>>(error)) {
     return new ApiError(error instanceof Error ? error.message : 'Unbekannter Fehler', 0)

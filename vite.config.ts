@@ -1,7 +1,7 @@
 import react from '@vitejs/plugin-react'
-// defineConfig aus vitest/config statt aus vite: identisch, aber zusaetzlich mit dem test-Block
-// typisiert. Eine separate vitest.config.ts wuerde vite.config.ts vollstaendig ersetzen, wodurch
-// das React-Plugin doppelt gepflegt werden muesste.
+// defineConfig aus vitest/config statt aus vite: identisch, aber zusätzlich mit dem test-Block
+// typisiert. Eine separate vitest.config.ts würde vite.config.ts vollständig ersetzen, wodurch
+// das React-Plugin doppelt gepflegt werden müsste.
 import { defineConfig } from 'vitest/config'
 
 // https://vite.dev/config/
@@ -11,9 +11,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // Das Backend hat keine CORS-Konfiguration, ein direkter Aufruf von localhost:5173 nach
-      // localhost:8080 wuerde daher vom Browser blockiert. Der Dev-Proxy laesst die Requests
-      // ueber den Vite-Origin laufen, wodurch sie fuer den Browser gleicher Herkunft sind.
-      // Das Praefix /api wird abgeschnitten, weil das Backend seine Endpunkte direkt an der
+      // localhost:8080 würde daher vom Browser blockiert. Der Dev-Proxy lässt die Requests
+      // über den Vite-Origin laufen, wodurch sie für den Browser gleicher Herkunft sind.
+      // Das Präfix /api wird abgeschnitten, weil das Backend seine Endpunkte direkt an der
       // Wurzel anbietet (/auth/login, /portfolios, ...).
       '/api': {
         target: 'http://localhost:8080',
@@ -26,8 +26,8 @@ export default defineConfig({
   test: {
     // Komponententests brauchen ein DOM. Reine Logiktests laufen darin ebenfalls.
     environment: 'jsdom',
-    // Bewusst keine globals: describe/it/expect werden importiert. Das haelt sichtbar, woher sie
-    // kommen, und erspart den zusaetzlichen types-Eintrag in tsconfig.app.json.
+    // Bewusst keine globals: describe/it/expect werden importiert. Das hält sichtbar, woher sie
+    // kommen, und erspart den zusätzlichen types-Eintrag in tsconfig.app.json.
     globals: false,
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],

@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterEach, beforeEach, vi } from 'vitest'
 
-// jsdom liefert kein vollstaendiges matchMedia. MUIs useColorScheme fragt prefers-color-scheme ab
+// jsdom liefert kein vollständiges matchMedia. MUIs useColorScheme fragt prefers-color-scheme ab
 // und bricht ohne Stub ab. Nur setzen, wenn jsdom es nicht selbst mitbringt.
 if (typeof window.matchMedia !== 'function') {
   vi.stubGlobal('matchMedia', (query: string): MediaQueryList => {
@@ -14,7 +14,7 @@ if (typeof window.matchMedia !== 'function') {
       addEventListener: () => {},
       removeEventListener: () => {},
       dispatchEvent: () => false,
-      // Veraltet, aber MUI ruft es in aelteren Pfaden noch auf.
+      // Veraltet, aber MUI ruft es in älteren Pfaden noch auf.
       addListener: () => {},
       removeListener: () => {},
     }
@@ -54,18 +54,18 @@ vi.stubGlobal('localStorage', createStorage())
 vi.stubGlobal('sessionStorage', createStorage())
 
 beforeEach(() => {
-  // MUI legt den gewaehlten Farbmodus in der Storage ab. Ohne Leeren wuerde ein Test den
-  // Ausgangszustand des naechsten verfaelschen.
+  // MUI legt den gewählten Farbmodus in der Storage ab. Ohne Leeren würde ein Test den
+  // Ausgangszustand des nächsten verfälschen.
   window.localStorage.clear()
   window.sessionStorage.clear()
-  // Das Farbschema haengt als data-light bzw. data-dark am html-Element und ueberlebt cleanup(),
+  // Das Farbschema hängt als data-light bzw. data-dark am html-Element und überlebt cleanup(),
   // weil es ausserhalb des gerenderten Baums liegt.
   document.documentElement.removeAttribute('data-light')
   document.documentElement.removeAttribute('data-dark')
 })
 
-// Bei globals: false raeumt Testing Library nicht selbst auf, weil es dafuer ein globales
-// afterEach braeuchte. Ohne das wuerden sich die gerenderten Baeume im document stapeln.
+// Bei globals: false räumt Testing Library nicht selbst auf, weil es dafür ein globales
+// afterEach bräuchte. Ohne das würden sich die gerenderten Bäume im document stapeln.
 afterEach(() => {
   cleanup()
 })

@@ -21,7 +21,7 @@ const PERCENT = new Intl.NumberFormat('de-CH', {
   signDisplay: 'always',
 })
 
-/** Beispieldaten. Nur zur Sichtpruefung des Themes, bis die echten Endpunkte angebunden sind. */
+/** Beispieldaten. Nur zur Sichtprüfung des Themes, bis die echten Endpunkte angebunden sind. */
 const DEMO_POSITIONS = [
   { symbol: 'AAPL', quantity: 120, value: 42_100, changePercent: 8.1 },
   { symbol: 'NESN', quantity: 80, value: 18_250, changePercent: -2.3 },
@@ -51,7 +51,7 @@ function App() {
               Aktienportfolio
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Nachbau, Frontend-Grundgeruest
+              Nachbau, Frontend-Grundgerüst
             </Typography>
           </Box>
           <ModeToggle />
@@ -84,7 +84,7 @@ function App() {
                     <TableCell>Symbol</TableCell>
                     <TableCell align="right">Anzahl</TableCell>
                     <TableCell align="right">Wert CHF</TableCell>
-                    <TableCell align="right">Veraenderung</TableCell>
+                    <TableCell align="right">Veränderung</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -119,7 +119,7 @@ function App() {
               Theme-Tokens
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Sichtpruefung fuer beide Farbmodi. Alle Werte stammen aus dem Theme, keine Literale im
+              Sichtprüfung für beide Farbmodi. Alle Werte stammen aus dem Theme, keine Literale im
               Komponentencode.
             </Typography>
 
@@ -145,7 +145,7 @@ function App() {
             <Divider sx={{ mb: 2 }} />
 
             <Typography variant="body2" color="text.secondary" gutterBottom>
-              Diagramm-Palette fuer Recharts
+              Diagramm-Palette für Recharts
             </Typography>
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
               {Array.from({ length: 8 }, (_unused, index) => index).map((index) => (
