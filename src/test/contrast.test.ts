@@ -2,19 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { contrastRatio } from './contrast'
 
 /**
- * Selbsttest der Hilfsfunktion. Ohne ihn koennte eine fehlerhafte Kontrastrechnung die
- * Palettentests stillschweigend gruen faerben, was schlimmer waere als kein Test.
+ * Selbsttest der Hilfsfunktion. Ohne ihn könnte eine fehlerhafte Kontrastrechnung die
+ * Palettentests stillschweigend grün färben, was schlimmer wäre als kein Test.
  */
 describe('contrastRatio', () => {
-  it('liefert 21 fuer Schwarz auf Weiss', () => {
+  it('liefert 21 für Schwarz auf Weiss', () => {
     expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 2)
   })
 
-  it('liefert 1 fuer identische Farben', () => {
+  it('liefert 1 für identische Farben', () => {
     expect(contrastRatio('#3a332c', '#3a332c')).toBeCloseTo(1, 5)
   })
 
-  it('ist richtungsunabhaengig bei deckenden Farben', () => {
+  it('ist richtungsunabhängig bei deckenden Farben', () => {
     expect(contrastRatio('#15803d', '#ffffff')).toBeCloseTo(contrastRatio('#ffffff', '#15803d'), 5)
   })
 
@@ -26,11 +26,11 @@ describe('contrastRatio', () => {
   it('rechnet teiltransparenten Vordergrund gegen den Grund', () => {
     // Voll transparent heisst: der Grund bleibt sichtbar, Kontrast also 1.
     expect(contrastRatio('rgba(255, 255, 255, 0)', '#221e1a')).toBeCloseTo(1, 5)
-    // Halb deckendes Weiss auf dunklem Grund muss deutlich ueber 1 liegen.
+    // Halb deckendes Weiss auf dunklem Grund muss deutlich über 1 liegen.
     expect(contrastRatio('rgba(255, 255, 255, 0.5)', '#221e1a')).toBeGreaterThan(3)
   })
 
-  it('weist unbekannte Farbformate zurueck statt still zu rechnen', () => {
+  it('weist unbekannte Farbformate zurück statt still zu rechnen', () => {
     expect(() => contrastRatio('rebeccapurple', '#ffffff')).toThrow(/Farbformat/)
     expect(() => contrastRatio('#abc', '#ffffff')).toThrow(/Farbformat/)
   })

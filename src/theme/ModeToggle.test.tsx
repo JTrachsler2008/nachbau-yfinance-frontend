@@ -44,8 +44,8 @@ describe('ModeToggle', () => {
     expect(await findButton('Hell')).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('behaelt die Auswahl, wenn auf den schon aktiven Modus geklickt wird', async () => {
-    // ToggleButtonGroup meldet in diesem Fall null. Ohne die Pruefung im onChange gaebe es
+  it('behält die Auswahl, wenn auf den schon aktiven Modus geklickt wird', async () => {
+    // ToggleButtonGroup meldet in diesem Fall null. Ohne die Prüfung im onChange gäbe es
     // danach einen Zustand ohne jede Auswahl.
     const user = userEvent.setup()
     renderToggle('light')
@@ -55,11 +55,11 @@ describe('ModeToggle', () => {
     expect(await findButton('Hell')).toHaveAttribute('aria-pressed', 'true')
   })
 
-  it('setzt das data-Attribut am Dokument, auf dem die Farbvariablen haengen', async () => {
+  it('setzt das data-Attribut am Dokument, auf dem die Farbvariablen hängen', async () => {
     // Das Theme nutzt colorSchemeSelector 'data'. MUI schreibt daraus die Attribute data-light
-    // bzw. data-dark an das html-Element, passend zu den erzeugten CSS-Bloecken
-    // ":root, [data-light]" und "[data-dark]". Ohne dieses Attribut wuerden die
-    // Dark-Mode-Variablen nie greifen und der Umschalter waere wirkungslos.
+    // bzw. data-dark an das html-Element, passend zu den erzeugten CSS-Blöcken
+    // ":root, [data-light]" und "[data-dark]". Ohne dieses Attribut würden die
+    // Dark-Mode-Variablen nie greifen und der Umschalter wäre wirkungslos.
     const user = userEvent.setup()
     renderToggle('light')
 
@@ -73,7 +73,7 @@ describe('ModeToggle', () => {
     expect(html.hasAttribute('data-light')).toBe(false)
   })
 
-  it('merkt sich den gewaehlten Modus ueber die Sitzung hinaus', async () => {
+  it('merkt sich den gewählten Modus über die Sitzung hinaus', async () => {
     const user = userEvent.setup()
     renderToggle('light')
 

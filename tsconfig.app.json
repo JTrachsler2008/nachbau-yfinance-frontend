@@ -18,7 +18,7 @@
 
     /* Linting */
     /* Vom Vite-Template nicht gesetzt. Ohne strict sind implizite any-Typen erlaubt, was das
-       Akzeptanzkriterium von YOUNGOITV-443 ("keine any-Durchgriffe") unpruefbar machen wuerde. */
+       Akzeptanzkriterium von YOUNGOITV-443 ("keine any-Durchgriffe") unprüfbar machen würde. */
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,

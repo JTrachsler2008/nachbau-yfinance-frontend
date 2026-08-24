@@ -25,7 +25,7 @@ const LABELS: Record<Mode, string> = {
  * Umschalter Hell / Systemeinstellung / Dunkel.
  *
  * `useColorScheme` liefert beim ersten Rendern noch keinen Modus, weil der gespeicherte Wert erst
- * clientseitig gelesen wird. Bis dahin wird ein Platzhalter gleicher Groesse gezeigt, damit das
+ * clientseitig gelesen wird. Bis dahin wird ein Platzhalter gleicher Grösse gezeigt, damit das
  * Layout nicht springt.
  */
 export function ModeToggle() {
@@ -42,7 +42,7 @@ export function ModeToggle() {
       value={mode}
       onChange={(_event, value: string | null) => {
         // null kommt, wenn auf den bereits aktiven Button geklickt wird. Dann nichts tun,
-        // sonst gaebe es einen Zustand ohne Auswahl.
+        // sonst gäbe es einen Zustand ohne Auswahl.
         if (value !== null && isMode(value)) {
           setMode(value)
         }

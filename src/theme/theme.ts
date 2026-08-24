@@ -10,7 +10,7 @@ declare module '@mui/material/styles' {
     finance?: FinancePalette
   }
 
-  /** Aktiviert die Typisierung von `theme.vars` fuer den CSS-Variablen-Modus. */
+  /** Aktiviert die Typisierung von `theme.vars` für den CSS-Variablen-Modus. */
   interface CssThemeVariables {
     enabled: true
   }
@@ -27,15 +27,15 @@ const radius = {
 } as const
 
 /**
- * Tabellarische Ziffern. Ohne das haben Ziffern unterschiedliche Breiten und Betraege verspringen in
- * Tabellenspalten optisch gegeneinander, was bei langen Positionslisten stoert. Wird ueber die
- * `MuiTableCell`-Ueberschreibung global gesetzt und ist hier zusaetzlich fuer Einzelfaelle exportiert.
+ * Tabellarische Ziffern. Ohne das haben Ziffern unterschiedliche Breiten und Beträge verspringen in
+ * Tabellenspalten optisch gegeneinander, was bei langen Positionslisten stört. Wird über die
+ * `MuiTableCell`-Überschreibung global gesetzt und ist hier zusätzlich für Einzelfälle exportiert.
  */
 export const tabularNums = { fontVariantNumeric: 'tabular-nums' } as const
 
 export const theme = createTheme({
-  // 'data' statt des Standards 'media': nur damit laesst sich der Modus manuell umschalten.
-  // Mit 'media' wuerde er ausschliesslich der Systemeinstellung folgen.
+  // 'data' statt des Standards 'media': nur damit lässt sich der Modus manuell umschalten.
+  // Mit 'media' würde er ausschliesslich der Systemeinstellung folgen.
   cssVariables: { colorSchemeSelector: 'data' },
 
   colorSchemes: {

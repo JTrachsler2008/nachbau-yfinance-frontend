@@ -3,11 +3,11 @@ import { AA_NON_TEXT, AA_NORMAL_TEXT, contrastRatio, flatten } from '../test/con
 import { theme } from './theme'
 
 /**
- * Prueft die Farbentscheidungen aus `planung/design-theme.md` gegen WCAG AA.
+ * Prüft die Farbentscheidungen aus `planung/design-theme.md` gegen WCAG AA.
  *
- * Die Werte werden aus dem Theme gelesen und nicht als Literale wiederholt. Nur so schlaegt der
- * Test an, wenn jemand eine Farbe im Theme aendert. Anlass: zwei Farben des Originals verfehlten
- * AA fuer normalen Text (gedimmter Text 2.85:1, Gewinn-Gruen 3.30:1).
+ * Die Werte werden aus dem Theme gelesen und nicht als Literale wiederholt. Nur so schlägt der
+ * Test an, wenn jemand eine Farbe im Theme ändert. Anlass: zwei Farben des Originals verfehlten
+ * AA für normalen Text (gedimmter Text 2.85:1, Gewinn-Grün 3.30:1).
  */
 
 function paletteOf(scheme: 'light' | 'dark') {
@@ -21,7 +21,7 @@ function paletteOf(scheme: 'light' | 'dark') {
 const light = paletteOf('light')
 const dark = paletteOf('dark')
 
-/** Alle Flaechen, auf denen Text tatsaechlich liegen kann: Seite, Karte und abgesetzte Flaeche. */
+/** Alle Flächen, auf denen Text tatsächlich liegen kann: Seite, Karte und abgesetzte Fläche. */
 const lightSurfaces = [
   ['background.default', light.background.default],
   ['background.paper', light.background.paper],
@@ -34,7 +34,7 @@ const darkSurfaces = [
   ['finance.surfaceMuted', dark.finance.surfaceMuted],
 ] as const
 
-describe('Light Mode, Text auf allen Flaechen', () => {
+describe('Light Mode, Text auf allen Flächen', () => {
   const textTokens = [
     ['text.primary', light.text.primary],
     ['text.secondary', light.text.secondary],
@@ -44,14 +44,14 @@ describe('Light Mode, Text auf allen Flaechen', () => {
 
   for (const [tokenName, color] of textTokens) {
     for (const [surfaceName, surface] of lightSurfaces) {
-      it(`${tokenName} auf ${surfaceName} erfuellt AA`, () => {
+      it(`${tokenName} auf ${surfaceName} erfüllt AA`, () => {
         expect(contrastRatio(color, surface)).toBeGreaterThanOrEqual(AA_NORMAL_TEXT)
       })
     }
   }
 })
 
-describe('Dark Mode, Text auf allen Flaechen', () => {
+describe('Dark Mode, Text auf allen Flächen', () => {
   const textTokens = [
     ['text.primary', dark.text.primary],
     ['text.secondary', dark.text.secondary],
@@ -61,7 +61,7 @@ describe('Dark Mode, Text auf allen Flaechen', () => {
 
   for (const [tokenName, color] of textTokens) {
     for (const [surfaceName, surface] of darkSurfaces) {
-      it(`${tokenName} auf ${surfaceName} erfuellt AA`, () => {
+      it(`${tokenName} auf ${surfaceName} erfüllt AA`, () => {
         expect(contrastRatio(color, surface)).toBeGreaterThanOrEqual(AA_NORMAL_TEXT)
       })
     }
@@ -79,7 +79,7 @@ describe('Badges', () => {
 
     it(`${badgeName} ist im Dark Mode lesbar`, () => {
       const badge = dark.finance[badgeName]
-      // Die Flaeche ist teiltransparent, also erst auf die Karte legen, dann den Text dagegen messen.
+      // Die Fläche ist teiltransparent, also erst auf die Karte legen, dann den Text dagegen messen.
       const composited = flatten(badge.background, dark.background.paper)
       expect(contrastRatio(badge.color, composited)).toBeGreaterThanOrEqual(AA_NORMAL_TEXT)
     })
@@ -93,7 +93,7 @@ describe('Diagramm-Palette', () => {
   })
 
   it('beginnt in beiden Modi nicht mit einer Semantikfarbe', () => {
-    // Sonst wuerde eine kategoriale Einfaerbung (Sektor, Land, Waehrung) mit der
+    // Sonst würde eine kategoriale Einfärbung (Sektor, Land, Währung) mit der
     // Gewinn-/Verlust-Semantik verwechselt.
     for (const palette of [light, dark]) {
       const semantic = [
@@ -106,7 +106,7 @@ describe('Diagramm-Palette', () => {
     }
   })
 
-  it('enthaelt keine Farbe doppelt', () => {
+  it('enthält keine Farbe doppelt', () => {
     expect(new Set(light.finance.chart).size).toBe(light.finance.chart.length)
     expect(new Set(dark.finance.chart).size).toBe(dark.finance.chart.length)
   })
@@ -115,7 +115,7 @@ describe('Diagramm-Palette', () => {
     const palette = scheme === 'light' ? light : dark
     palette.finance.chart.forEach((color, index) => {
       it(`${scheme} Diagrammfarbe ${index} erreicht 3:1 gegen die Karte`, () => {
-        // Diagrammflaechen sind grafische Objekte, fuer die AA 3:1 verlangt, nicht 4.5:1.
+        // Diagrammflächen sind grafische Objekte, für die AA 3:1 verlangt, nicht 4.5:1.
         expect(contrastRatio(color, palette.background.paper)).toBeGreaterThanOrEqual(AA_NON_TEXT)
       })
     })
