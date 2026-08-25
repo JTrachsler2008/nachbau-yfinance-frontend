@@ -1,7 +1,17 @@
 import '@testing-library/jest-dom/vitest'
 
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { afterEach, beforeEach, vi } from 'vitest'
+
+/**
+ * `findBy*` wartet voreingestellt nur eine Sekunde.
+ *
+ * Zu wenig, seit die Integrationstests ganze Seiten samt Diagrammen rendern: laufen mehrere
+ * Testdateien parallel, ist der Anmeldevorgang gelegentlich später fertig, ohne dass etwas defekt
+ * wäre. Passend zum `testTimeout` in `vite.config.ts` gesetzt, damit ein echter Fehler weiterhin am
+ * Test scheitert und nicht am Zeitlimit der Datei.
+ */
+configure({ asyncUtilTimeout: 8000 })
 
 // jsdom liefert kein vollständiges matchMedia. MUIs useColorScheme fragt prefers-color-scheme ab
 // und bricht ohne Stub ab. Nur setzen, wenn jsdom es nicht selbst mitbringt.
@@ -52,6 +62,55 @@ function createStorage(): Storage {
 
 vi.stubGlobal('localStorage', createStorage())
 vi.stubGlobal('sessionStorage', createStorage())
+
+/**
+ * jsdom kennt keinen Layout-Algorithmus: jedes Element ist 0 mal 0 gross und `ResizeObserver` fehlt
+ * ganz. Recharts' `ResponsiveContainer` misst darüber seine Grösse, bekommt 0 und warnt bei jedem
+ * Diagramm auf der Konsole.
+ *
+ * Deshalb ein `ResizeObserver`, der einmal eine Grösse meldet, plus feste Masse auf den
+ * Element-Prototypen. Damit rendern Diagramme im Test wirklich, statt als leeres div zu enden. Das
+ * ist mehr als Rauschunterdrückung: nur so decken Tests auch die Diagramm-Zweige ab.
+ */
+const chartWidth = 800
+const chartHeight = 300
+
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    // Feld und Zuweisung getrennt, weil `erasableSyntaxOnly` Parameter-Eigenschaften verbietet:
+    // sie erzeugen Laufzeitcode, den ein reiner Typ-Entferner nicht wegstreichen kann.
+    readonly callback: ResizeObserverCallback
+
+    constructor(callback: ResizeObserverCallback) {
+      this.callback = callback
+    }
+
+    observe(target: Element): void {
+      const entry = {
+        target,
+        contentRect: { width: chartWidth, height: chartHeight } as DOMRectReadOnly,
+      } as ResizeObserverEntry
+      this.callback([entry], this as unknown as ResizeObserver)
+    }
+
+    unobserve(): void {}
+
+    disconnect(): void {}
+  },
+)
+
+for (const [property, value] of [
+  ['offsetWidth', chartWidth],
+  ['offsetHeight', chartHeight],
+  ['clientWidth', chartWidth],
+  ['clientHeight', chartHeight],
+] as const) {
+  Object.defineProperty(window.HTMLElement.prototype, property, {
+    configurable: true,
+    value,
+  })
+}
 
 beforeEach(() => {
   // MUI legt den gewählten Farbmodus in der Storage ab. Ohne Leeren würde ein Test den

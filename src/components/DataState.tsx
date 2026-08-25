@@ -6,6 +6,7 @@ import Skeleton from '@mui/material/Skeleton'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { ApiError } from '../api/client'
+import { serverErrorMessage } from '../api/formErrors'
 
 /**
  * Lade-, Fehler- und Leerzustände als drei kleine Bausteine.
@@ -55,6 +56,9 @@ interface ErrorPanelProps {
  * Fehler einer Datenabfrage. Zeigt bei einem nicht erreichbaren Backend einen anderen Text als bei
  * einer fachlichen Fehlermeldung, weil der Nutzer im ersten Fall nichts richten kann und im zweiten
  * meist doch.
+ *
+ * Ein 5xx bekommt den neutralen Text aus `serverErrorMessage`: der Wortlaut des Backends kann dort
+ * Interna tragen (SEC-5). Fachliche Meldungen bleiben unverändert stehen.
  */
 export function ErrorPanel({ error, onRetry, title }: ErrorPanelProps) {
   const apiError = error instanceof ApiError ? error : null
@@ -63,7 +67,9 @@ export function ErrorPanel({ error, onRetry, title }: ErrorPanelProps) {
       ? 'Unerwarteter Fehler'
       : apiError.isNetworkError
         ? 'Backend nicht erreichbar. Läuft der Server auf Port 8080?'
-        : apiError.message
+        : apiError.status >= 500
+          ? serverErrorMessage
+          : apiError.message
 
   return (
     <Alert

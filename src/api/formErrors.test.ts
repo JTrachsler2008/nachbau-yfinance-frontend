@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from './client'
-import { describeApiError } from './formErrors'
+import { describeApiError, serverErrorMessage } from './formErrors'
 
 describe('describeApiError', () => {
   it('nutzt die Übersetzung für den passenden Status', () => {
@@ -19,6 +19,23 @@ describe('describeApiError', () => {
     })
 
     expect(result.message).toBe('Nicht genügend Cash auf dem Konto')
+  })
+
+  it('ersetzt die Meldung eines Serverfehlers, statt Interna weiterzugeben', () => {
+    // SEC-5: bei einem 500er steckt im Text des Backends gern ein Klassenname.
+    const result = describeApiError(
+      new ApiError('java.lang.NullPointerException: "summe" is null', 500),
+    )
+
+    expect(result.message).toBe(serverErrorMessage)
+  })
+
+  it('lässt eine eigene Übersetzung auch bei einem Serverfehler gewinnen', () => {
+    const result = describeApiError(new ApiError('java.lang.IllegalStateException', 503), {
+      503: 'Der Kursanbieter antwortet gerade nicht',
+    })
+
+    expect(result.message).toBe('Der Kursanbieter antwortet gerade nicht')
   })
 
   it('übernimmt fieldErrors der Bean-Validation', () => {
