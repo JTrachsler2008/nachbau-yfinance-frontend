@@ -147,12 +147,11 @@ describe('Navigation', () => {
     await screen.findByRole('heading', { name: 'Dashboard' })
 
     await user.click(screen.getByRole('button', { name: 'Navigation öffnen' }))
-    await user.click(await screen.findByRole('link', { name: 'Transaktionen' }))
+    // Eine noch nicht umgesetzte Seite, damit dieser Test die Navigation prüft und nicht deren Inhalt.
+    await user.click(await screen.findByRole('link', { name: 'Risiko' }))
 
-    expect(await screen.findByRole('heading', { name: 'Transaktionen' })).toBeInTheDocument()
-    expect(
-      await screen.findByText('Noch nicht umgesetzt (YOUNGOITV-448 bis YOUNGOITV-450)'),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Risiko' })).toBeInTheDocument()
+    expect(await screen.findByText('Noch nicht umgesetzt (YOUNGOITV-453)')).toBeInTheDocument()
   })
 
   it('markiert den aktiven Eintrag mit aria-current', async () => {
