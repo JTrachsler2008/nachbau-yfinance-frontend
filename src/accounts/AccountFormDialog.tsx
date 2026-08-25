@@ -10,6 +10,7 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import { useState, type FormEvent } from 'react'
 import { describeApiError, type FormError } from '../api/formErrors'
+import { useIsMobile } from '../components/useIsMobile'
 import { currencies } from '../format/currencies'
 import { useCreateAccount } from './useAccounts'
 
@@ -34,6 +35,7 @@ export function AccountFormDialog({
   defaultCurrency,
   onClose,
 }: AccountFormDialogProps) {
+  const isMobile = useIsMobile()
   const [name, setName] = useState('')
   const [currency, setCurrency] = useState<string>(defaultCurrency)
   const [error, setError] = useState<FormError | null>(null)
@@ -51,7 +53,7 @@ export function AccountFormDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs" fullScreen={isMobile}>
       <Box component="form" onSubmit={handleSubmit} noValidate>
         <DialogTitle>Neues Konto</DialogTitle>
         <DialogContent>

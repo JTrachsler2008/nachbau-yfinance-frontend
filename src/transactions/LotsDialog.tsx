@@ -7,6 +7,7 @@ import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/DataState'
 import { ResponsiveTable, type Column } from '../components/ResponsiveTable'
+import { useIsMobile } from '../components/useIsMobile'
 import { formatDate, formatMoney, formatQuantity, missingValue } from '../format/numbers'
 import type { Position } from '../positions/positionApi'
 import type { Lot } from './transactionApi'
@@ -31,6 +32,7 @@ interface LotsDialogProps {
  * geschätzte Kurse wären in einer Vermögensübersicht schlimmer als eine fehlende Grafik.
  */
 export function LotsDialog({ open, position, onClose }: LotsDialogProps) {
+  const isMobile = useIsMobile()
   const lots = useLots(position.accountId, position.securityId)
 
   const columns: readonly Column<Lot>[] = [
@@ -61,7 +63,7 @@ export function LotsDialog({ open, position, onClose }: LotsDialogProps) {
   ]
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" fullScreen={isMobile}>
       <DialogTitle>
         Tranchen {position.symbol} in {position.accountName}
       </DialogTitle>

@@ -10,6 +10,7 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import { useState, type FormEvent } from 'react'
 import { describeApiError, type FormError } from '../api/formErrors'
+import { useIsMobile } from '../components/useIsMobile'
 import { currencies } from '../format/currencies'
 import type { Portfolio } from './portfolioApi'
 import { useCreatePortfolio, useUpdatePortfolio } from './usePortfolios'
@@ -29,6 +30,7 @@ export function PortfolioFormDialog({
   onClose,
   onCreated,
 }: PortfolioFormDialogProps) {
+  const isMobile = useIsMobile()
   const isEdit = portfolio !== null
   const [name, setName] = useState(portfolio?.name ?? '')
   const [baseCurrency, setBaseCurrency] = useState<string>(portfolio?.baseCurrency ?? currencies[0])
@@ -63,7 +65,7 @@ export function PortfolioFormDialog({
   return (
     // keepMounted bewusst nicht: der Dialog soll bei jedem Öffnen mit den Werten des dann
     // ausgewählten Portfolios neu aufgebaut werden.
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs" fullScreen={isMobile}>
       <Box component="form" onSubmit={handleSubmit} noValidate>
         <DialogTitle>{isEdit ? 'Portfolio bearbeiten' : 'Neues Portfolio'}</DialogTitle>
         <DialogContent>

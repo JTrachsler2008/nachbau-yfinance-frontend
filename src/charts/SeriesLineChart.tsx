@@ -10,8 +10,16 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { useIsMobile } from '../components/useIsMobile'
 import { verlaufJeSerie, type LinePoint, type Serie } from './verlauf'
 import { useChartColors } from './useChartColors'
+
+/**
+ * Höhe auf Telefonen. Ein 300px hohes Diagramm füllt dort die halbe Bildschirmhöhe, und die
+ * Tabelle darunter mit den Zwischenwerten wäre ganz aus dem Blick (Responsive-Konzept,
+ * YOUNGOITV-458).
+ */
+const mobileHeight = 220
 
 interface SeriesLineChartProps {
   /** Überschrift und Grundlage der Beschreibung für Screenreader. */
@@ -46,6 +54,9 @@ export function SeriesLineChart({
   height = 300,
 }: SeriesLineChartProps) {
   const colors = useChartColors()
+  const isMobile = useIsMobile()
+  // Ein von aussen gesetztes, kleineres Mass bleibt stehen: die Regel soll flacher machen, nicht höher.
+  const chartHeight = isMobile ? Math.min(mobileHeight, height) : height
 
   if (points.length === 0 || series.length === 0) {
     return (
@@ -76,7 +87,7 @@ export function SeriesLineChart({
       <Typography variant="subtitle2" component="h3" gutterBottom>
         {title}
       </Typography>
-      <Box role="img" aria-label={`${title}: ${beschreibung}`} sx={{ height }}>
+      <Box role="img" aria-label={`${title}: ${beschreibung}`} sx={{ height: chartHeight }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={data}

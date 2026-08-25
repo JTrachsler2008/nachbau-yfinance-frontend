@@ -39,6 +39,9 @@ export function ConfirmDialog({
   onClose,
 }: ConfirmDialogProps) {
   return (
+    // Bewusst auch auf Telefonen kein Vollbild, anders als die Formulardialoge: hier stehen zwei
+    // Zeilen Text und zwei Knöpfe. Ein ganzer Bildschirm dafür verdeckt den Datensatz, um den es
+    // geht, und lässt eine Rückfrage schwerer wiegen als die Aktion selbst.
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>

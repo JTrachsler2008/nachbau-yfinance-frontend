@@ -33,6 +33,23 @@ const radius = {
  */
 export const tabularNums = { fontVariantNumeric: 'tabular-nums' } as const
 
+/**
+ * Kleinstes Touch-Ziel in Pixeln. Der UI/UX-Plan verlangt mindestens 44x44px für alles, was
+ * angetippt wird (Responsive-Konzept, YOUNGOITV-458).
+ */
+export const touchTarget = 44
+
+/**
+ * Nur für Geräte mit grobem Zeigegerät, also Finger statt Mauszeiger.
+ *
+ * Die Vergrösserung hängt an der Eingabeart und nicht am Breakpoint: ein Tablet in Landschaft ist
+ * breit und wird trotzdem angetippt, ein schmales Browserfenster auf dem Desktop nicht. An eine
+ * Bildschirmbreite gebunden wäre die Regel an beiden Enden falsch. Mit der Maus bleiben die
+ * kompakten Masse, weil ein Zeiger genauer trifft als eine Fingerkuppe und 44px hohe Chips in einer
+ * Diagrammlegende sonst nur Platz kosten.
+ */
+const coarsePointer = '@media (pointer: coarse)'
+
 export const theme = createTheme({
   // 'data' statt des Standards 'media': nur damit lässt sich der Modus manuell umschalten.
   // Mit 'media' würde er ausschliesslich der Systemeinstellung folgen.
@@ -98,7 +115,20 @@ export const theme = createTheme({
 
     MuiButton: {
       styleOverrides: {
-        root: { borderRadius: radius.medium },
+        root: {
+          borderRadius: radius.medium,
+          [coarsePointer]: { minHeight: touchTarget },
+        },
+      },
+    },
+
+    MuiIconButton: {
+      styleOverrides: {
+        // Ein Icon-Knopf mit `size="small"` ist 34px hoch. Das ist der kleinste Knopf der
+        // Oberfläche und trifft die Grenze des Plans am deutlichsten.
+        root: {
+          [coarsePointer]: { minWidth: touchTarget, minHeight: touchTarget },
+        },
       },
     },
 
@@ -110,7 +140,39 @@ export const theme = createTheme({
 
     MuiChip: {
       styleOverrides: {
-        root: { borderRadius: radius.pill },
+        root: {
+          borderRadius: radius.pill,
+          // Nur die klickbaren: die Legenden der Ringdiagramme sind Filter und laut Plan
+          // ausdrücklich Touch-Ziele. Ein Chip, der nur einen Status anzeigt, bleibt klein.
+          [coarsePointer]: { '&.MuiChip-clickable': { minHeight: touchTarget } },
+        },
+      },
+    },
+
+    MuiToggleButton: {
+      styleOverrides: {
+        root: {
+          [coarsePointer]: { minWidth: touchTarget, minHeight: touchTarget },
+        },
+      },
+    },
+
+    MuiMenuItem: {
+      styleOverrides: {
+        // Die Portfolio-Auswahl und jedes Select öffnen eine solche Liste.
+        root: {
+          [coarsePointer]: { minHeight: touchTarget },
+        },
+      },
+    },
+
+    MuiFormControlLabel: {
+      styleOverrides: {
+        // Das Label ist die Klickfläche eines Schalters oder einer Checkbox. MUIs Switch ist
+        // 38px hoch und reisst die Grenze damit knapp.
+        root: {
+          [coarsePointer]: { minHeight: touchTarget },
+        },
       },
     },
 
