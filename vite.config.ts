@@ -33,7 +33,13 @@ export default defineConfig({
     // Die Integrationstests rendern die ganze Anwendung und klicken sich durch Menüs und Dialoge.
     // Auf einem belasteten Rechner reichen die voreingestellten 5 Sekunden dafür nicht, ohne dass
     // etwas defekt wäre.
-    testTimeout: 20000,
+    testTimeout: 30000,
+    // Jeder Testprozess hält ein eigenes jsdom mit React, MUI und Recharts. Voreingestellt startet
+    // Vitest so viele Prozesse wie Kerne vorhanden sind; die belegen zusammen mehr Speicher als da
+    // ist und bremsen sich gegenseitig aus, bis einzelne Tests in den Timeout laufen, obwohl dieselbe
+    // Datei allein in Sekunden durchläuft. Vier Prozesse sind der Punkt, an dem die Suite zuverlässig
+    // grün bleibt, ohne die Laufzeit merklich zu verlängern.
+    maxWorkers: 4,
     include: ['src/**/*.test.{ts,tsx}'],
     coverage: {
       provider: 'v8',

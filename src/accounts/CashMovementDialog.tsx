@@ -13,6 +13,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/client'
 import { describeApiError } from '../api/formErrors'
+import { useIsMobile } from '../components/useIsMobile'
 import { formatMoney, parseAmount } from '../format/numbers'
 import type { Account } from './accountApi'
 import { accountKeys, useMoveCash } from './useAccounts'
@@ -51,6 +52,7 @@ export function CashMovementDialog({
   direction,
   onClose,
 }: CashMovementDialogProps) {
+  const isMobile = useIsMobile()
   const [amountText, setAmountText] = useState('')
   const [amountError, setAmountError] = useState<string | null>(null)
   const [generalError, setGeneralError] = useState<string | null>(null)
@@ -111,7 +113,7 @@ export function CashMovementDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs" fullScreen={isMobile}>
       <Box component="form" onSubmit={handleSubmit} noValidate>
         <DialogTitle>
           {titles[direction]} auf {account.name}

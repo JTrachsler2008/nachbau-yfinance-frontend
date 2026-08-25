@@ -14,6 +14,7 @@ import { useState, type FormEvent } from 'react'
 import type { Account } from '../accounts/accountApi'
 import { ApiError } from '../api/client'
 import { describeApiError } from '../api/formErrors'
+import { useIsMobile } from '../components/useIsMobile'
 import { currencies } from '../format/currencies'
 import { heute } from '../format/dates'
 import { parseAmount } from '../format/numbers'
@@ -70,6 +71,7 @@ export function TransactionFormDialog({
   accounts,
   onClose,
 }: TransactionFormDialogProps) {
+  const isMobile = useIsMobile()
   const securities = useSecurities()
   const create = useCreateTransaction(portfolioId)
 
@@ -228,7 +230,10 @@ export function TransactionFormDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    // Auf Telefonen im Vollbild: dieses Formular hat je Transaktionsart bis zu neun Felder, und in
+    // einem Dialog mit Rand bleibt daneben nur ein Streifen unbenutzbarer Seite stehen
+    // (Responsive-Konzept, YOUNGOITV-458).
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" fullScreen={isMobile}>
       <Box component="form" onSubmit={handleSubmit} noValidate>
         <DialogTitle>Neue Transaktion</DialogTitle>
         <DialogContent>

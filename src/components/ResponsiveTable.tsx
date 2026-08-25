@@ -10,9 +10,8 @@ import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import Typography from '@mui/material/Typography'
-import useMediaQuery from '@mui/material/useMediaQuery'
-import { useTheme } from '@mui/material/styles'
 import type { ReactNode } from 'react'
+import { useIsMobile } from './useIsMobile'
 
 export interface Column<T> {
   /** Eindeutig innerhalb der Tabelle, dient als React-Key. */
@@ -54,8 +53,7 @@ export function ResponsiveTable<T>({
   label,
   actions,
 }: ResponsiveTableProps<T>) {
-  const theme = useTheme()
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const isMobile = useIsMobile()
 
   if (isMobile) {
     const primary = columns.find((column) => column.primary === true)
