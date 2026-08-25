@@ -5,7 +5,7 @@ import {
   type InternalAxiosRequestConfig,
 } from 'axios'
 import { apiClient, loginPath, type BackendErrorBody } from '../api/client'
-import { gestern } from '../format/dates'
+import { gestern, vorTagen } from '../format/dates'
 
 /**
  * Nachbau des Backends auf Ebene des axios-Adapters.
@@ -213,6 +213,48 @@ export interface FakeSimulations {
   backtest: FakeBacktest
 }
 
+/** `SecurityRiskResponseDto`. Jedes Feld darf `null` sein, das heisst "nicht bestimmbar". */
+export interface FakeSecurityRisk {
+  symbol: string
+  securityName: string
+  weight: number | null
+  annualizedReturn: number | null
+  volatility: number | null
+  sharpeRatio: number | null
+  beta: number | null
+  maxDrawdown: number | null
+  valueAtRisk95: number | null
+}
+
+/**
+ * `RiskAnalysisResponseDto` ohne die sechs Felder, die der Endpunkt aus Portfolio und Anfrage füllt
+ * (Nummer, Name, Währung, Zeitraum und Benchmark-Symbol).
+ *
+ * Hinterlegt und nicht gerechnet, wie bei `analytics` und `simulations`: die Kennzahlen entstehen im
+ * Backend aus Tagesrenditen je Wertpapier, einer Ausrichtung auf gemeinsame Handelstage, Annualisierung
+ * über 252 Tage und einer Gewichtung nach Marktwert. Diese Fachlogik hier nachzubauen hiesse, sie zu
+ * duplizieren, und der Test würde die Kopie prüfen statt die Oberfläche.
+ *
+ * Die Vorgabewerte passen zusammen: die Gewichte summieren sich auf 100, die Volatilität des
+ * Portfolios liegt unter der gewichteten Summe der Einzelvolatilitäten, und der
+ * Diversifikationsgewinn ist genau diese Differenz.
+ */
+export interface FakeRiskAnalysis {
+  benchmarkReturn: number | null
+  benchmarkVolatility: number | null
+  observations: number
+  riskFreeRate: number | null
+  annualizedReturn: number | null
+  volatility: number | null
+  sharpeRatio: number | null
+  beta: number | null
+  maxDrawdown: number | null
+  valueAtRisk95: number | null
+  diversificationBenefit: number | null
+  securities: FakeSecurityRisk[]
+  excluded: { symbol: string; reason: string }[]
+}
+
 export interface FakeBackend {
   requests: readonly RequestLog[]
   users: readonly FakeUser[]
@@ -249,6 +291,11 @@ export interface FakeBackend {
   quotes: Map<string, number>
   /** Veränderlich: ein Test kann eine eigene Antwort hinterlegen. */
   simulations: FakeSimulations
+  /**
+   * Risikoanalysen je Portfolionummer. Fehlt der Eintrag, kommt die leere Analyse zurück, mit der
+   * das Backend ein Portfolio ohne verwertbare Positionen beantwortet.
+   */
+  risk: Map<number, FakeRiskAnalysis>
   /**
    * Legt einen weiteren Benutzer an und gibt ihn samt Nummer zurück.
    *
@@ -450,6 +497,90 @@ function defaultAnalytics(): Map<string, number> {
   return new Map([
     ['realized-gains|10|CHF', -128.4],
     ['dividends|10|CHF', 214.5],
+  ])
+}
+
+/**
+ * Antwort auf ein Portfolio ohne verwertbare Positionen.
+ *
+ * Alle Kennzahlen `null` und `observations` 0, wie der Dienst es liefert: eine 0 als Volatilität wäre
+ * die Aussage "bewegt sich nicht", das Fehlen von Kursdaten ist keine Aussage über das Risiko.
+ */
+function leereRisikoanalyse(): FakeRiskAnalysis {
+  return {
+    benchmarkReturn: null,
+    benchmarkVolatility: null,
+    observations: 0,
+    // Der Zins steht auch ohne Bestand fest, er ist eine Annahme und kein Ergebnis.
+    riskFreeRate: 4,
+    annualizedReturn: null,
+    volatility: null,
+    sharpeRatio: null,
+    beta: null,
+    maxDrawdown: null,
+    valueAtRisk95: null,
+    diversificationBenefit: null,
+    securities: [],
+    excluded: [],
+  }
+}
+
+/**
+ * Risikoanalyse für Portfolio 10 mit seinen beiden Positionen NESN und AAPL.
+ *
+ * Nachgerechnet, damit die Zahlen zueinander passen: Gewichte 41.05 + 58.95 = 100, gewichtete Summe
+ * der Einzelvolatilitäten 0.4105 * 14.20 + 0.5895 * 26.80 = 21.63, Portfoliovolatilität 19.85, also
+ * ein Diversifikationsgewinn von 1.78 Prozentpunkten. Sharpe (13.18 - 4.00) / 19.85 = 0.46.
+ *
+ * `excluded` ist leer, weil beide Positionen auswertbar sind. Ein Test, der die Ausschlussliste
+ * braucht, hängt selbst einen Eintrag an.
+ *
+ * Portfolio 11 hat keinen Eintrag und bekommt damit die leere Analyse, was zu seinem leeren Bestand
+ * passt.
+ */
+function defaultRisk(): Map<number, FakeRiskAnalysis> {
+  return new Map([
+    [
+      10,
+      {
+        benchmarkReturn: 11.25,
+        benchmarkVolatility: 17.4,
+        observations: 248,
+        riskFreeRate: 4,
+        annualizedReturn: 13.18,
+        volatility: 19.85,
+        sharpeRatio: 0.46,
+        beta: 0.99,
+        maxDrawdown: -17.9,
+        valueAtRisk95: -1.95,
+        diversificationBenefit: 1.78,
+        securities: [
+          {
+            symbol: 'NESN',
+            securityName: 'Nestlé SA',
+            weight: 41.05,
+            annualizedReturn: 5.4,
+            volatility: 14.2,
+            sharpeRatio: 0.1,
+            beta: 0.62,
+            maxDrawdown: -12.3,
+            valueAtRisk95: -1.45,
+          },
+          {
+            symbol: 'AAPL',
+            securityName: 'Apple Inc.',
+            weight: 58.95,
+            annualizedReturn: 18.6,
+            volatility: 26.8,
+            sharpeRatio: 0.54,
+            beta: 1.24,
+            maxDrawdown: -22.4,
+            valueAtRisk95: -2.6,
+          },
+        ],
+        excluded: [],
+      },
+    ],
   ])
 }
 
@@ -772,6 +903,7 @@ export function installFakeBackend(): FakeBackend {
   const analytics = defaultAnalytics()
   const quotes = defaultQuotes()
   const simulations = defaultSimulations()
+  const risk = defaultRisk()
   const requests: RequestLog[] = []
   const forcedStatuses = new Map<string, number>()
   let sessionValid = true
@@ -1351,6 +1483,44 @@ export function installFakeBackend(): FakeBackend {
       return Promise.resolve(ok({ amount, currency }, 200, config))
     }
 
+    const riskMatch = /^\/portfolios\/(\d+)\/risk$/.exec(url)
+    if (riskMatch !== null && method === 'GET') {
+      const portfolioId = Number(riskMatch[1])
+      const portfolio = portfolios.find((candidate) => candidate.id === portfolioId)
+      if (portfolio === undefined) {
+        return fail(404, 'Not Found', `Portfolio ${portfolioId} not found`, config)
+      }
+      const abfrage = readParams(config)
+      const lookbackDays = Number(abfrage.lookbackDays ?? 365)
+      if (!Number.isInteger(lookbackDays) || lookbackDays < 30 || lookbackDays > 3650) {
+        return fail(400, 'Bad Request', 'lookbackDays must be between 30 and 3650', config)
+      }
+      const benchmark = String(abfrage.benchmark ?? 'SPY').trim().toUpperCase()
+      if (benchmark === '') {
+        return fail(400, 'Bad Request', 'benchmark must not be blank', config)
+      }
+      return Promise.resolve(
+        ok(
+          {
+            portfolioId,
+            portfolioName: portfolio.name,
+            currency: portfolio.baseCurrency,
+            // Wie im Dienst: gerechnet wird bis gestern, und von dort `lookbackDays` Kalendertage
+            // zurück. Der Zeitraum kommt aus der Antwort in die Oberfläche, deshalb muss er hier
+            // dieselbe Rechnung durchlaufen und nicht einfach ein festes Datumspaar sein.
+            from: vorTagen(lookbackDays + 1),
+            to: gestern(),
+            // Grossgeschrieben zurück, wie der Controller es normalisiert: ein Beta gegen "spy" und
+            // eines gegen "SPY" sind dasselbe, und die Oberfläche beschriftet damit ihre Achse.
+            benchmarkSymbol: benchmark,
+            ...(risk.get(portfolioId) ?? leereRisikoanalyse()),
+          },
+          200,
+          config,
+        ),
+      )
+    }
+
     if (method === 'GET' && url === '/compare/asset-classes') {
       const period = Number(readParams(config).period ?? 10)
       if (!Number.isInteger(period) || period < 1 || period > 100) {
@@ -1509,6 +1679,7 @@ export function installFakeBackend(): FakeBackend {
     analytics,
     quotes,
     simulations,
+    risk,
     addUser: (username, role) => {
       const created: FakeUser = {
         id: nextId(users, 1),

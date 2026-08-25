@@ -26,6 +26,13 @@ export function gestern(): string {
   return iso(date)
 }
 
+/** ISO-Datum vor `tage` Tagen. Für Zeiträume, die das Backend in Kalendertagen angibt. */
+export function vorTagen(tage: number): string {
+  const date = new Date()
+  date.setDate(date.getDate() - tage)
+  return iso(date)
+}
+
 /**
  * Dasselbe Kalenderdatum vor `jahre` Jahren.
  *

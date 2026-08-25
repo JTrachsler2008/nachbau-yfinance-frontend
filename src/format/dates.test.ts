@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { gestern, heute, vorJahren } from './dates'
+import { gestern, heute, vorJahren, vorTagen } from './dates'
 
 /**
  * Datumshilfen der Formulare (YOUNGOITV-455, YOUNGOITV-456).
@@ -36,6 +36,19 @@ describe('gestern', () => {
     vi.setSystemTime(new Date(2026, 8, 1, 23, 30))
 
     expect(gestern()).toBe('2026-08-31')
+  })
+})
+
+describe('vorTagen', () => {
+  it('zählt Kalendertage zurück, nicht Handelstage', () => {
+    expect(vorTagen(1)).toBe('2026-08-24')
+    expect(vorTagen(365)).toBe('2025-08-25')
+  })
+
+  it('rechnet über Monats- und Jahresgrenzen', () => {
+    vi.setSystemTime(new Date(2026, 0, 5, 23, 30))
+
+    expect(vorTagen(10)).toBe('2025-12-26')
   })
 })
 
