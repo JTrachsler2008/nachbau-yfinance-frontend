@@ -58,6 +58,20 @@ export function getAuthToken(): string | null {
   return authToken
 }
 
+/** Pfad des Login-Endpunkts. Als Konstante, weil der 401-Haken ihn ausnehmen muss. */
+export const loginPath = '/auth/login'
+
+/**
+ * Reaktion auf ein abgelaufenes oder ungültiges Token. Der Client kennt den Router bewusst nicht,
+ * deshalb registriert der `AuthProvider` hier eine Funktion, die abmeldet und zur Login-Seite
+ * umleitet (UI/UX-Plan, Fehlerzustand 401).
+ */
+let unauthorizedHandler: (() => void) | null = null
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler
+}
+
 export const apiClient: AxiosInstance = axios.create({
   baseURL: apiBaseUrl,
   timeout: 30_000,
@@ -73,8 +87,20 @@ apiClient.interceptors.request.use((config) => {
 
 apiClient.interceptors.response.use(
   (response) => response,
-  (error: unknown) => Promise.reject(toApiError(error)),
+  (error: unknown) => {
+    const apiError = toApiError(error)
+    // Der Login selbst antwortet bei falschen Zugangsdaten mit 401. Dort darf der Haken nicht
+    // greifen, sonst würde die Login-Seite sich selbst als abgelaufene Sitzung behandeln.
+    if (apiError.status === 401 && !isLoginRequest(error) && unauthorizedHandler !== null) {
+      unauthorizedHandler()
+    }
+    return Promise.reject(apiError)
+  },
 )
+
+function isLoginRequest(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.config?.url === loginPath
+}
 
 /** Übersetzt alles, was axios wirft, in einen `ApiError` mit der Message des Backends. */
 function toApiError(error: unknown): ApiError {

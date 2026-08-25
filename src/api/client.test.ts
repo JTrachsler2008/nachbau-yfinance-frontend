@@ -5,7 +5,9 @@ import {
   apiBaseUrl,
   apiClient,
   getAuthToken,
+  loginPath,
   setAuthToken,
+  setUnauthorizedHandler,
   type BackendErrorBody,
 } from './client'
 
@@ -74,6 +76,7 @@ async function captureApiError(request: Promise<unknown>): Promise<ApiError> {
 afterEach(() => {
   apiClient.defaults.adapter = originalAdapter
   setAuthToken(null)
+  setUnauthorizedHandler(null)
 })
 
 describe('Konfiguration', () => {
@@ -205,5 +208,73 @@ describe('Fehler-Übersetzung', () => {
 
     expect(response.status).toBe(200)
     expect(response.data).toEqual([{ id: 1, name: 'Depot' }])
+  })
+})
+
+describe('401-Haken', () => {
+  function unauthorizedBody(message: string): BackendErrorBody {
+    return {
+      timestamp: '2026-08-24T12:00:00Z',
+      status: 401,
+      error: 'Unauthorized',
+      message,
+      fieldErrors: null,
+    }
+  }
+
+  it('meldet ein abgelaufenes Token an den registrierten Haken', async () => {
+    let calls = 0
+    setUnauthorizedHandler(() => {
+      calls += 1
+    })
+    respondWithStatus(401, unauthorizedBody('Full authentication is required'), 'Unauthorized')
+
+    await captureApiError(apiClient.get('/portfolios'))
+
+    expect(calls).toBe(1)
+  })
+
+  it('greift beim Login nicht, damit falsche Zugangsdaten nicht als abgelaufene Sitzung gelten', async () => {
+    let calls = 0
+    setUnauthorizedHandler(() => {
+      calls += 1
+    })
+    respondWithStatus(401, unauthorizedBody('Bad credentials'), 'Unauthorized')
+
+    const error = await captureApiError(apiClient.post(loginPath, { username: 'a', password: 'b' }))
+
+    // Der Fehler muss trotzdem beim Aufrufer landen, nur eben ohne Umleitung.
+    expect(error.status).toBe(401)
+    expect(calls).toBe(0)
+  })
+
+  it('greift nicht bei anderen Status als 401', async () => {
+    let calls = 0
+    setUnauthorizedHandler(() => {
+      calls += 1
+    })
+    respondWithStatus(
+      403,
+      { ...unauthorizedBody('Access denied'), status: 403, error: 'Forbidden' },
+      'Forbidden',
+    )
+
+    await captureApiError(apiClient.get('/portfolios'))
+
+    // 403 heisst angemeldet, aber nicht berechtigt. Ein Abmelden wäre hier falsch.
+    expect(calls).toBe(0)
+  })
+
+  it('ruft nach dem Abmelden keinen alten Haken mehr auf', async () => {
+    let calls = 0
+    setUnauthorizedHandler(() => {
+      calls += 1
+    })
+    setUnauthorizedHandler(null)
+    respondWithStatus(401, unauthorizedBody('Full authentication is required'), 'Unauthorized')
+
+    await captureApiError(apiClient.get('/portfolios'))
+
+    expect(calls).toBe(0)
   })
 })
