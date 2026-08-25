@@ -147,11 +147,12 @@ describe('Navigation', () => {
     await screen.findByRole('heading', { name: 'Dashboard' })
 
     await user.click(screen.getByRole('button', { name: 'Navigation öffnen' }))
-    // Eine noch nicht umgesetzte Seite, damit dieser Test die Navigation prüft und nicht deren Inhalt.
     await user.click(await screen.findByRole('link', { name: 'Risiko' }))
 
+    // Titel und Bedienelement der Zielseite. Ihre Zahlen prüft `risk/risiko.test.tsx`, hier geht es
+    // um den Wechsel selbst.
     expect(await screen.findByRole('heading', { name: 'Risiko' })).toBeInTheDocument()
-    expect(await screen.findByText('Noch nicht umgesetzt (YOUNGOITV-453)')).toBeInTheDocument()
+    expect(await screen.findByRole('group', { name: 'Zeitraum' })).toBeInTheDocument()
   })
 
   it('markiert den aktiven Eintrag mit aria-current', async () => {
