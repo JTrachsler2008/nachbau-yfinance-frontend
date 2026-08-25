@@ -3,7 +3,7 @@ import { AuthProvider } from './auth/AuthProvider'
 import { LoginPage } from './auth/LoginPage'
 import { RegisterPage } from './auth/RegisterPage'
 import { RequireAuth } from './auth/RequireAuth'
-import { AppShell } from './layout/AppShell'
+import { AppLayout } from './layout/AppLayout'
 import { DashboardPage } from './pages/DashboardPage'
 import { KontenPage } from './pages/KontenPage'
 import { PerformancePage } from './pages/PerformancePage'
@@ -26,7 +26,7 @@ function App() {
         <Route path="/registrieren" element={<RegisterPage />} />
 
         <Route element={<RequireAuth />}>
-          <Route element={<AppShell />}>
+          <Route element={<AppLayout />}>
             <Route index element={<DashboardPage />} />
             <Route path="performance" element={<PerformancePage />} />
             <Route path="risiko" element={<RisikoPage />} />

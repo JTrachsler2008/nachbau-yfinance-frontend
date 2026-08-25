@@ -20,6 +20,7 @@ import { useTheme } from '@mui/material/styles'
 import { useState } from 'react'
 import { Link as RouterLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
+import { PortfolioMenu } from '../portfolios/PortfolioMenu'
 import { ModeToggle } from '../theme/ModeToggle'
 import { isNavItemActive, navItems } from './navigation'
 
@@ -100,9 +101,20 @@ export function AppShell() {
             </IconButton>
           )}
 
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+          <Typography
+            variant="h6"
+            component="div"
+            noWrap
+            // Auf sehr kleinen Bildschirmen weicht der Anwendungsname der Portfolio-Auswahl: welches
+            // Portfolio gerade aktiv ist, muss der Nutzer sehen, den Namen der App nicht.
+            sx={{ mr: 2, display: { xs: 'none', sm: 'block' } }}
+          >
             Aktienportfolio
           </Typography>
+
+          <PortfolioMenu />
+
+          <Box sx={{ flexGrow: 1 }} />
 
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
             <ModeToggle />
