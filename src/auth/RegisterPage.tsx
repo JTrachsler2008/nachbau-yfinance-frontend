@@ -11,7 +11,7 @@ import { useState, type FormEvent } from 'react'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { ModeToggle } from '../theme/ModeToggle'
 import { passwordMinLength, requestRegistration } from './authApi'
-import { describeApiError, type FormError } from './authErrors'
+import { describeApiError, type FormError } from '../api/formErrors'
 import { useAuth } from './useAuth'
 
 /**

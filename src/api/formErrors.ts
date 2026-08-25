@@ -1,4 +1,4 @@
-import { ApiError } from '../api/client'
+import { ApiError } from './client'
 
 export interface FormError {
   /** Text für das Banner über dem Formular. */

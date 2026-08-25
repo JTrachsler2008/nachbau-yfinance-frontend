@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { ApiError } from '../api/client'
-import { describeApiError } from './authErrors'
+import { ApiError } from './client'
+import { describeApiError } from './formErrors'
 
 describe('describeApiError', () => {
   it('nutzt die Übersetzung für den passenden Status', () => {

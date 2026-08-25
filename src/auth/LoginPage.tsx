@@ -10,7 +10,7 @@ import Typography from '@mui/material/Typography'
 import { useState, type FormEvent } from 'react'
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom'
 import { ModeToggle } from '../theme/ModeToggle'
-import { describeApiError, type FormError } from './authErrors'
+import { describeApiError, type FormError } from '../api/formErrors'
 import { useAuth } from './useAuth'
 
 /** Ziel, auf das nach dem Anmelden gesprungen wird, wenn kein anderes angefordert wurde. */

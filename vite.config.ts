@@ -30,6 +30,10 @@ export default defineConfig({
     // kommen, und erspart den zusätzlichen types-Eintrag in tsconfig.app.json.
     globals: false,
     setupFiles: ['./src/test/setup.ts'],
+    // Die Integrationstests rendern die ganze Anwendung und klicken sich durch Menüs und Dialoge.
+    // Auf einem belasteten Rechner reichen die voreingestellten 5 Sekunden dafür nicht, ohne dass
+    // etwas defekt wäre.
+    testTimeout: 20000,
     include: ['src/**/*.test.{ts,tsx}'],
     coverage: {
       provider: 'v8',
