@@ -3,9 +3,16 @@ import { apiClient, loginPath } from '../api/client'
 /** Rollen aus `UserRole` des Backends. */
 export type UserRole = 'PRIVATANLEGER' | 'MANAGER' | 'ADMIN'
 
-/** Antwort von `GET /users/me` (`MeResponseDto`). Enthält bewusst nur den Benutzernamen. */
+/**
+ * Antwort von `GET /users/me` (`MeResponseDto`).
+ *
+ * Die Rolle kommt aus diesem Endpunkt und nicht aus dem Token: das JWT wird im Frontend nicht
+ * entschlüsselt, und eine Rollenänderung soll ohne neue Anmeldung wirken. Sie steuert nur die
+ * Anzeige, die Berechtigung prüft weiterhin das Backend.
+ */
 export interface Me {
   username: string
+  role: UserRole
 }
 
 /** Antwort von `POST /users` (`UserResponseDto`). */
