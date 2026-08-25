@@ -15,6 +15,7 @@ import type { Account } from '../accounts/accountApi'
 import { ApiError } from '../api/client'
 import { describeApiError } from '../api/formErrors'
 import { currencies } from '../format/currencies'
+import { heute } from '../format/dates'
 import { parseAmount } from '../format/numbers'
 import { useSecurities } from '../securities/useSecurities'
 import type { Security } from '../securities/securityApi'
@@ -31,14 +32,6 @@ interface TransactionFormDialogProps {
   portfolioId: number
   accounts: readonly Account[]
   onClose: () => void
-}
-
-/** Heute als ISO-Datum in der Zeitzone des Benutzers. `toISOString` wäre UTC und damit abends falsch. */
-function heute(): string {
-  const now = new Date()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${now.getFullYear()}-${month}-${day}`
 }
 
 /** Menge ist bei einem Split kein Eingabewert: das Verhältnis rechnet den ganzen Bestand um. */
