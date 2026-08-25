@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   formatAmount,
   formatDate,
+  formatMonth,
   formatMoney,
   formatPercent,
   formatQuantity,
@@ -94,6 +95,23 @@ describe('formatDate', () => {
 
   it('zeigt fehlende Daten als Platzhalter', () => {
     expect(formatDate(null)).toBe(missingValue)
+  })
+})
+
+describe('formatMonth', () => {
+  it('lässt den technischen Tag eines Monatsrasters weg', () => {
+    // Das Backend liefert für Monatsreihen immer den Ersten des Monats. In der Achsenbeschriftung
+    // eines Zehnjahresverlaufs kostet der Tag nur Platz.
+    expect(formatMonth('2024-03-01')).toBe('03.2024')
+  })
+
+  it('gibt unbekannte Formate unverändert zurück statt sie zu verfälschen', () => {
+    expect(formatMonth('irgendwas')).toBe('irgendwas')
+  })
+
+  it('zeigt fehlende Daten als Platzhalter', () => {
+    expect(formatMonth(null)).toBe(missingValue)
+    expect(formatMonth('')).toBe(missingValue)
   })
 })
 

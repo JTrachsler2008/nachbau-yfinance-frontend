@@ -98,6 +98,23 @@ export function formatDate(value: string | null | undefined): string {
 }
 
 /**
+ * ISO-Datum (`2026-08-01`) als `08.2026`.
+ *
+ * Für Verlaufsreihen auf Monatsraster: dort ist der Tag im Datum eine technische Beigabe des
+ * Backends (immer der Erste des Monats) und würde in der Achsenbeschriftung nur Platz kosten.
+ */
+export function formatMonth(value: string | null | undefined): string {
+  if (value === null || value === undefined || value === '') {
+    return missingValue
+  }
+  const match = /^(\d{4})-(\d{2})/.exec(value)
+  if (match === null) {
+    return value
+  }
+  return `${match[2]}.${match[1]}`
+}
+
+/**
  * Liest eine Benutzereingabe als Zahl.
  *
  * Nötig, weil `number`-Eingabefelder in Formularen mehr Probleme bringen als sie lösen (Mausrad
