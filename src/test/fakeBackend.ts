@@ -36,6 +36,12 @@ export interface FakePortfolio {
   name: string
   baseCurrency: string
   description: string | null
+  /**
+   * Eigentümer. Im echten `PortfolioResponseDto` steht der Name ebenfalls, und hier entscheidet er
+   * zusätzlich, wer das Portfolio überhaupt zu sehen bekommt: `GET /portfolios` liefert nur eigene,
+   * `GET /portfolios/managed` nur betreute.
+   */
+  ownerUsername: string
   managerUserId: number | null
   managerUsername: string | null
   createdAt: string
@@ -231,6 +237,16 @@ export interface FakeBackend {
   quotes: Map<string, number>
   /** Veränderlich: ein Test kann eine eigene Antwort hinterlegen. */
   simulations: FakeSimulations
+  /**
+   * Legt einen weiteren Benutzer an und gibt ihn samt Nummer zurück.
+   *
+   * Nötig, weil eine Manager-Zuordnung die Nummer eines zweiten Benutzers braucht und `POST /users`
+   * immer die Rolle PRIVATANLEGER vergibt. Das Passwort ist das des Demo-Benutzers, damit sich der
+   * neue Benutzer auch anmelden lässt.
+   */
+  addUser: (username: string, role: FakeUser['role']) => FakeUser
+  /** Setzt die Rolle eines bestehenden Benutzers, wie `PATCH /users/{id}/role` es täte. */
+  setRole: (username: string, role: FakeUser['role']) => void
   /** Lässt geschützte Endpunkte ab jetzt mit 401 antworten, wie bei abgelaufenem Token. */
   expireSession: () => void
   /**
@@ -264,6 +280,7 @@ function defaultPortfolios(): FakePortfolio[] {
       name: 'Hauptdepot',
       baseCurrency: 'CHF',
       description: 'Langfristige Anlagen',
+      ownerUsername: demoUser.username,
       managerUserId: null,
       managerUsername: null,
       createdAt: timestamp,
@@ -274,6 +291,7 @@ function defaultPortfolios(): FakePortfolio[] {
       name: 'Zweitdepot',
       baseCurrency: 'EUR',
       description: null,
+      ownerUsername: demoUser.username,
       managerUserId: null,
       managerUsername: null,
       createdAt: timestamp,
@@ -929,7 +947,7 @@ export function installFakeBackend(): FakeBackend {
         return fail(409, 'Conflict', `Username '${username}' is already taken`, config)
       }
       const created: FakeUser = {
-        id: users.length + 1,
+        id: nextId(users, 1),
         username,
         email: String(body.email),
         password: String(body.password),
@@ -975,7 +993,12 @@ export function installFakeBackend(): FakeBackend {
 
     if (url === '/portfolios') {
       if (method === 'GET') {
-        return Promise.resolve(ok(portfolios, 200, config))
+        // Nur eigene: ein betreutes Portfolio erscheint ausschliesslich unter /portfolios/managed,
+        // sonst hielte ein Manager es für sein eigenes.
+        const eigene = portfolios.filter(
+          (portfolio) => portfolio.ownerUsername === username,
+        )
+        return Promise.resolve(ok(eigene, 200, config))
       }
       if (method === 'POST') {
         const body = readBody(config)
@@ -984,6 +1007,7 @@ export function installFakeBackend(): FakeBackend {
           name: String(body.name),
           baseCurrency: String(body.baseCurrency),
           description: body.description === null ? null : String(body.description),
+          ownerUsername: username,
           managerUserId: null,
           managerUsername: null,
           createdAt: timestamp,
@@ -992,6 +1016,60 @@ export function installFakeBackend(): FakeBackend {
         portfolios.push(created)
         return Promise.resolve(ok(created, 201, config))
       }
+    }
+
+    if (method === 'GET' && url === '/portfolios/managed') {
+      // Wie im Backend: ohne die Rolle MANAGER eine leere Liste und kein Fehler. Die Rollenprüfung
+      // steht zusätzlich zur Zuordnung, damit ein Downgrade die Mandate sofort verschwinden lässt.
+      const angemeldet = users.find((candidate) => candidate.username === username)
+      const mandate =
+        angemeldet?.role === 'MANAGER'
+          ? portfolios.filter((portfolio) => portfolio.managerUsername === username)
+          : []
+      return Promise.resolve(ok(mandate, 200, config))
+    }
+
+    const managerMatch = /^\/portfolios\/(\d+)\/manager$/.exec(url)
+    if (managerMatch !== null && method === 'PATCH') {
+      const id = Number(managerMatch[1])
+      const portfolio = portfolios.find((candidate) => candidate.id === id)
+      if (portfolio === undefined) {
+        return fail(404, 'Not Found', `Portfolio ${id} not found`, config)
+      }
+      // Strenger als der Lesezugriff: hier gilt `isOwner`, nicht `isAuthorizedForPortfolio`. Ein
+      // zugeordneter Manager darf sich also nicht selbst ersetzen oder entfernen.
+      if (portfolio.ownerUsername !== username) {
+        return fail(
+          403,
+          'Forbidden',
+          `Only the owner of portfolio ${id} may assign a manager`,
+          config,
+        )
+      }
+      const rohId = readBody(config).managerUserId
+      if (rohId === null || rohId === undefined) {
+        portfolio.managerUserId = null
+        portfolio.managerUsername = null
+        return Promise.resolve(ok(portfolio, 200, config))
+      }
+      const managerUserId = Number(rohId)
+      const manager = users.find((candidate) => candidate.id === managerUserId)
+      if (manager === undefined) {
+        return fail(404, 'Not Found', `User ${managerUserId} not found`, config)
+      }
+      if (manager.role !== 'MANAGER') {
+        // Wortlaut der InvalidRoleAssignmentException, damit der Test sieht, was die Oberfläche
+        // übersetzen muss.
+        return fail(
+          400,
+          'Bad Request',
+          `User ${managerUserId} does not have the MANAGER role`,
+          config,
+        )
+      }
+      portfolio.managerUserId = manager.id
+      portfolio.managerUsername = manager.username
+      return Promise.resolve(ok(portfolio, 200, config))
     }
 
     const portfolioMatch = /^\/portfolios\/(\d+)$/.exec(url)
@@ -1284,6 +1362,24 @@ export function installFakeBackend(): FakeBackend {
     analytics,
     quotes,
     simulations,
+    addUser: (username, role) => {
+      const created: FakeUser = {
+        id: nextId(users, 1),
+        username,
+        email: `${username}@example.test`,
+        password: demoUser.password,
+        role,
+      }
+      users.push(created)
+      return created
+    },
+    setRole: (username, role) => {
+      const found = users.find((candidate) => candidate.username === username)
+      if (found === undefined) {
+        throw new Error(`Kein Benutzer '${username}' im Nachbau des Backends`)
+      }
+      found.role = role
+    },
     expireSession: () => {
       sessionValid = false
     },

@@ -1,8 +1,18 @@
 import { createContext } from 'react'
+import type { UserRole } from './authApi'
 
 export interface AuthContextValue {
   /** Benutzername des angemeldeten Users, `null` wenn nicht angemeldet. */
   username: string | null
+  /**
+   * Rolle des angemeldeten Users, `null` wenn nicht angemeldet.
+   *
+   * Steuert ausschliesslich die Sichtbarkeit in der Oberfläche (YOUNGOITV-459/460): welche
+   * Navigationseinträge und Sektionen erscheinen. Die Berechtigung selbst prüft immer das Backend,
+   * ein manipulierter Wert im Browser öffnet also keinen Zugriff, sondern nur eine Ansicht, deren
+   * Abfragen mit 403 antworten.
+   */
+  role: UserRole | null
   isAuthenticated: boolean
   /** Meldet an und wirft im Fehlerfall den `ApiError` weiter, damit die Seite ihn anzeigen kann. */
   login: (username: string, password: string) => Promise<void>

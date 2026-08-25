@@ -182,8 +182,12 @@ describe('Registrieren', () => {
     await user.type(screen.getByLabelText(/^Passwort/), 'geheim1234')
     await user.click(screen.getByRole('button', { name: 'Konto anlegen' }))
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument()
+    // Der frisch angelegte Benutzer ist angemeldet, hat aber noch kein Portfolio: die Kopfzeile
+    // steht, der Seiteninhalt bleibt hinter dem `PortfolioGate` und nennt den nächsten Schritt.
+    // Fremde Portfolios sieht er nicht, `GET /portfolios` liefert nur eigene.
+    expect(await screen.findByRole('button', { name: 'Abmelden' })).toBeInTheDocument()
     expect(screen.getByText('neuling')).toBeInTheDocument()
+    expect(await screen.findByText(/Noch kein Portfolio vorhanden/)).toBeInTheDocument()
     expect(backend.users.map((entry) => entry.username)).toContain('neuling')
   })
 
