@@ -104,6 +104,8 @@ export interface RequestLog {
   url: string
   /** Gesetzter Authorization-Header, sonst undefined. */
   authorization: string | undefined
+  /** Query-Parameter, die axios erst beim Senden an die URL hängt (etwa `?currency=CHF`). */
+  params: Record<string, unknown> | undefined
 }
 
 export interface FakeBackend {
@@ -121,8 +123,25 @@ export interface FakeBackend {
    * eine Buchung ohne Preis mit 404, wie der `PriceService` des Backends.
    */
   prices: Map<string, number>
+  /**
+   * Antworten der Auswertungsendpunkte, Schlüssel `art|portfolioId|waehrung`, etwa
+   * `realized-gains|10|CHF`. Fehlt der Eintrag, kommt 0 zurück.
+   *
+   * Hinterlegt statt gerechnet: die Summen entstehen im Backend aus FIFO über die gesamte Historie
+   * und einer Umrechnung über hinterlegte FX-Kurse. Diese Fachlogik hier nachzubauen hiesse, sie zu
+   * duplizieren, und der Test würde am Ende die Kopie prüfen statt die Oberfläche.
+   */
+  analytics: Map<string, number>
   /** Lässt geschützte Endpunkte ab jetzt mit 401 antworten, wie bei abgelaufenem Token. */
   expireSession: () => void
+  /**
+   * Lässt jeden Pfad, der `urlFragment` enthält, mit `status` antworten.
+   *
+   * Damit sind die Zweige der globalen Fehlerbehandlung prüfbar: der 403-Sprung auf die
+   * Portfolioliste und die Meldung bei einem 500er, deren Backend-Text nicht in der Oberfläche
+   * landen darf.
+   */
+  forceStatus: (urlFragment: string, status: number) => void
   /** Setzt den ursprünglichen Adapter zurück. Gehört in ein afterEach. */
   restore: () => void
 }
@@ -291,6 +310,20 @@ function defaultPrices(): Map<string, number> {
   return new Map([['202|2026-06-01', 500]])
 }
 
+/**
+ * Auswertungen für Portfolio 10 in seiner Basiswährung CHF.
+ *
+ * Ein Verlust bei den realisierten Gewinnen, damit die rote Färbung der Kennzahlenkarte an echten
+ * Daten hängt. Portfolio 11 hat keinen Eintrag und liefert deshalb 0, was zu seinem leeren Bestand
+ * passt.
+ */
+function defaultAnalytics(): Map<string, number> {
+  return new Map([
+    ['realized-gains|10|CHF', -128.4],
+    ['dividends|10|CHF', 214.5],
+  ])
+}
+
 const originalAdapter = apiClient.defaults.adapter
 
 function ok<T>(data: T, status: number, config: InternalAxiosRequestConfig): AxiosResponse<T> {
@@ -350,6 +383,41 @@ function readBody(config: InternalAxiosRequestConfig): Record<string, unknown> {
     return {}
   }
   return JSON.parse(config.data) as Record<string, unknown>
+}
+
+/**
+ * Query-Parameter der Anfrage.
+ *
+ * axios hängt `params` erst nach dem Adapter an die URL, im Adapter steht das Objekt also noch
+ * getrennt daneben und `config.url` ist ohne `?`.
+ */
+function readParams(config: InternalAxiosRequestConfig): Record<string, unknown> {
+  const params: unknown = config.params
+  if (params === null || typeof params !== 'object') {
+    return {}
+  }
+  return params as Record<string, unknown>
+}
+
+/**
+ * Fehlerkörper für einen erzwungenen Status.
+ *
+ * Der Text des 500ers trägt bewusst technischen Ballast: die Oberfläche darf ihn laut Sicherheits-
+ * vorgabe nicht anzeigen, und ein Test kann das nur prüfen, wenn es etwas Erkennbares zu verbergen
+ * gibt.
+ */
+function forcedBody(status: number, url: string): { error: string; message: string } {
+  if (status === 403) {
+    return { error: 'Forbidden', message: `Access to ${url} is denied` }
+  }
+  if (status >= 500) {
+    return {
+      error: 'Internal Server Error',
+      message:
+        'java.lang.NullPointerException: Cannot invoke "java.math.BigDecimal.add(java.math.BigDecimal)" because "summe" is null',
+    }
+  }
+  return { error: 'Bad Request', message: `Forced status ${status} for ${url}` }
 }
 
 /** `AccountResponseDto` kennt kein Feld für das Portfolio, die Zuordnung bleibt intern. */
@@ -428,7 +496,9 @@ export function installFakeBackend(): FakeBackend {
   const positions = defaultPositions()
   const lots = defaultLots()
   const prices = defaultPrices()
+  const analytics = defaultAnalytics()
   const requests: RequestLog[] = []
+  const forcedStatuses = new Map<string, number>()
   let sessionValid = true
 
   /** FIFO: älteste Tranche zuerst, eine teilweise verbrauchte bleibt mit ihrer Restmenge stehen. */
@@ -593,7 +663,8 @@ export function installFakeBackend(): FakeBackend {
     const url = config.url ?? ''
     const rawAuthorization = config.headers.Authorization
     const authorization = typeof rawAuthorization === 'string' ? rawAuthorization : undefined
-    requests.push({ method, url, authorization })
+    const params = config.params === undefined ? undefined : readParams(config)
+    requests.push({ method, url, authorization, params })
 
     if (method === 'POST' && url === loginPath) {
       const { username, password } = readBody(config)
@@ -638,6 +709,15 @@ export function installFakeBackend(): FakeBackend {
     const username = usernameFromHeader(authorization)
     if (username === null || !sessionValid) {
       return fail(401, 'Unauthorized', 'Full authentication is required', config)
+    }
+
+    // Nach der Anmeldeprüfung, wie in einer Filterkette: ein abgelaufenes Token bleibt ein 401, auch
+    // wenn für den Pfad ein anderer Status gesetzt ist.
+    for (const [fragment, status] of forcedStatuses) {
+      if (url.includes(fragment)) {
+        const body = forcedBody(status, url)
+        return fail(status, body.error, body.message, config)
+      }
     }
 
     if (method === 'GET' && url === '/users/me') {
@@ -780,6 +860,28 @@ export function installFakeBackend(): FakeBackend {
       return Promise.resolve(ok(rows, 200, config))
     }
 
+    const analyticsMatch = /^\/portfolios\/(\d+)\/(realized-gains|dividends)$/.exec(url)
+    if (analyticsMatch !== null && method === 'GET') {
+      const portfolioId = Number(analyticsMatch[1])
+      const art = analyticsMatch[2]
+      if (!portfolios.some((portfolio) => portfolio.id === portfolioId)) {
+        return fail(404, 'Not Found', `Portfolio ${portfolioId} not found`, config)
+      }
+      const currency = readParams(config).currency
+      if (typeof currency !== 'string' || currency === '') {
+        // Wortlaut der MissingServletRequestParameterException: der Parameter ist im Backend
+        // Pflicht, ein Aufruf ohne ihn muss also auffallen und nicht stillschweigend gelingen.
+        return fail(
+          400,
+          'Bad Request',
+          "Required request parameter 'currency' for method parameter type String is not present",
+          config,
+        )
+      }
+      const amount = analytics.get(`${art}|${portfolioId}|${currency}`) ?? 0
+      return Promise.resolve(ok({ amount, currency }, 200, config))
+    }
+
     const lotsMatch = /^\/accounts\/(\d+)\/positions\/(\d+)\/lots$/.exec(url)
     if (lotsMatch !== null && method === 'GET') {
       const accountId = Number(lotsMatch[1])
@@ -817,8 +919,12 @@ export function installFakeBackend(): FakeBackend {
     positions,
     lots,
     prices,
+    analytics,
     expireSession: () => {
       sessionValid = false
+    },
+    forceStatus: (urlFragment, status) => {
+      forcedStatuses.set(urlFragment, status)
     },
     restore: () => {
       apiClient.defaults.adapter = originalAdapter

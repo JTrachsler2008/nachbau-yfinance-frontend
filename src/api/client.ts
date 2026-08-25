@@ -72,6 +72,20 @@ export function setUnauthorizedHandler(handler: (() => void) | null): void {
   unauthorizedHandler = handler
 }
 
+/**
+ * Reaktion auf einen Serverfehler (5xx) und auf einen verletzten Owner-Check (403).
+ *
+ * Beide gehören nicht an ein Formularfeld: ein 500er hat mit der Eingabe nichts zu tun, und ein 403
+ * bedeutet aus Nutzersicht fast immer einen veralteten oder fremden Link (UI/UX-Plan,
+ * Fehlerbehandlungsstrategie). Der Client kennt weder Router noch Snackbar, deshalb registriert der
+ * `NotificationProvider` hier eine Funktion, wie es der `AuthProvider` für den 401 tut.
+ */
+let globalErrorHandler: ((error: ApiError) => void) | null = null
+
+export function setGlobalErrorHandler(handler: ((error: ApiError) => void) | null): void {
+  globalErrorHandler = handler
+}
+
 export const apiClient: AxiosInstance = axios.create({
   baseURL: apiBaseUrl,
   timeout: 30_000,
@@ -94,6 +108,12 @@ apiClient.interceptors.response.use(
     if (apiError.status === 401 && !isLoginRequest(error) && unauthorizedHandler !== null) {
       unauthorizedHandler()
     }
+    if ((apiError.status === 403 || apiError.status >= 500) && globalErrorHandler !== null) {
+      globalErrorHandler(apiError)
+    }
+    // Trotz Meldung weiterwerfen: die aufrufende Stelle muss ihren eigenen Fehlerzustand zeigen
+    // können, sonst bliebe eine Tabelle mit veralteten Daten stehen (UI/UX-Plan, kein stilles
+    // Verschlucken).
     return Promise.reject(apiError)
   },
 )

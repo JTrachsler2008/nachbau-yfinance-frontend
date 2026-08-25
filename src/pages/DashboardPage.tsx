@@ -1,165 +1,427 @@
 import Alert from '@mui/material/Alert'
 import AlertTitle from '@mui/material/AlertTitle'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
-import Divider from '@mui/material/Divider'
 import Stack from '@mui/material/Stack'
-import Table from '@mui/material/Table'
-import TableBody from '@mui/material/TableBody'
-import TableCell from '@mui/material/TableCell'
-import TableContainer from '@mui/material/TableContainer'
-import TableHead from '@mui/material/TableHead'
-import TableRow from '@mui/material/TableRow'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
-import { apiBaseUrl } from '../api/client'
+import { useMemo, useState } from 'react'
+import { Link as RouterLink } from 'react-router-dom'
+import { useAccounts } from '../accounts/useAccounts'
+import { DonutChart } from '../charts/DonutChart'
+import { fasseZusammen } from '../charts/slices'
+import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/DataState'
+import { KpiCard } from '../components/KpiCard'
+import { toneFor } from '../components/kpiTone'
+import { PageHeader } from '../components/PageHeader'
+import { ResponsiveTable, type Column } from '../components/ResponsiveTable'
+import { landName } from '../format/countries'
+import { formatMoney, formatQuantity, missingValue } from '../format/numbers'
+import { useDividends, useRealizedGains } from '../performance/usePerformance'
+import type { Position } from '../positions/positionApi'
+import { usePositions } from '../positions/usePositions'
+import { PortfolioGate } from '../portfolios/PortfolioGate'
+import type { Portfolio } from '../portfolios/portfolioApi'
 
-const CHF = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const PERCENT = new Intl.NumberFormat('de-CH', {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-  signDisplay: 'always',
-})
-
-/** Beispieldaten. Nur zur Sichtprüfung des Themes, bis die echten Endpunkte angebunden sind. */
-const DEMO_POSITIONS = [
-  { symbol: 'AAPL', quantity: 120, value: 42_100, changePercent: 8.1 },
-  { symbol: 'NESN', quantity: 80, value: 18_250, changePercent: -2.3 },
-  { symbol: 'MSFT', quantity: 45, value: 31_900, changePercent: 3.7 },
-  { symbol: 'VWRL', quantity: 210, value: 32_100, changePercent: 1.2 },
-] as const
-
-const DEMO_BADGES = [
-  { label: 'Kauf', token: 'badgeBuy' },
-  { label: 'Verkauf', token: 'badgeSell' },
-  { label: 'Dividende', token: 'badgeDividend' },
-] as const
-
+/**
+ * Übersicht über das aktive Portfolio (YOUNGOITV-451).
+ *
+ * Der UI/UX-Plan sieht hier Gesamtwert, Gewinn/Verlust und TWR/MWR vor. Keine dieser Zahlen ist
+ * verfügbar: das Backend liefert zu Beständen bewusst keine Kursdaten
+ * (`PortfolioPositionResponseDto` ohne aktuellen Kurs und Marktwert), und für TWR/MWR gibt es keinen
+ * Endpunkt, weil die dafür nötige historische Neubewertung laut `PerformanceController` Folgearbeit
+ * ist. Der Plan hält für genau diesen Fall den degradierten Zustand fest: Bestandsdaten bleiben
+ * sichtbar, marktabhängige Kennzahlen werden als nicht verfügbar gekennzeichnet statt geschätzt.
+ *
+ * Aggregiert wird deshalb der Einstandswert, und zwar je Handelswährung getrennt. Eine Summe über
+ * mehrere Währungen wäre erfunden: für Bestände gibt es keinen Endpunkt mit Anzeigewährung, und die
+ * Umrechnung im Browser nachzubauen hiesse, die FX-Logik des Backends zu duplizieren.
+ */
 export function DashboardPage() {
-  const total = DEMO_POSITIONS.reduce((sum, position) => sum + position.value, 0)
+  return <PortfolioGate>{(portfolio) => <Uebersicht portfolio={portfolio} />}</PortfolioGate>
+}
+
+/** Einstandswert einer Position in ihrer Handelswährung, Gebühren inbegriffen. */
+function einstand(position: Position): number {
+  return position.totalQuantity * position.averagePurchasePrice
+}
+
+function Uebersicht({ portfolio }: { portfolio: Portfolio }) {
+  const positions = usePositions(portfolio.id)
+  const accounts = useAccounts(portfolio.id)
+  const realizedGains = useRealizedGains(portfolio.id, portfolio.baseCurrency)
+  const dividends = useDividends(portfolio.id, portfolio.baseCurrency)
+
+  const [gewaehlteWaehrung, setGewaehlteWaehrung] = useState<string | null>(null)
+  const [sektor, setSektor] = useState<string | null>(null)
+  const [land, setLand] = useState<string | null>(null)
+
+  // Über useMemo, weil beides in Abhängigkeitslisten weiter unten steht: `?? []` erzeugt vor der
+  // ersten Antwort bei jedem Render ein neues Array und würde die Memos wertlos machen.
+  const alleBestaende = useMemo(() => positions.data ?? [], [positions.data])
+  const alleKonten = useMemo(() => accounts.data ?? [], [accounts.data])
+
+  const bestandsWaehrungen = useMemo(
+    () => [...new Set(alleBestaende.map((position) => position.tradingCurrency))].sort(),
+    [alleBestaende],
+  )
+
+  /**
+   * Die Auswahl wird abgeleitet und nicht in einem Effekt nachgezogen: wechselt das Portfolio, ist
+   * eine gemerkte Währung womöglich gar nicht mehr vorhanden, und ein Effekt würde die Seite erst
+   * einmal mit leerem Bestand rendern.
+   */
+  const waehrung =
+    gewaehlteWaehrung !== null && bestandsWaehrungen.includes(gewaehlteWaehrung)
+      ? gewaehlteWaehrung
+      : bestandsWaehrungen.includes(portfolio.baseCurrency)
+        ? portfolio.baseCurrency
+        : (bestandsWaehrungen[0] ?? portfolio.baseCurrency)
+
+  const bestaende = useMemo(
+    () => alleBestaende.filter((position) => position.tradingCurrency === waehrung),
+    [alleBestaende, waehrung],
+  )
+  const einstandSumme = bestaende.reduce((summe, position) => summe + einstand(position), 0)
+  const cashSumme = alleKonten
+    .filter((account) => account.currency === waehrung)
+    .reduce((summe, account) => summe + account.cashAmount, 0)
+
+  const sektoren = useMemo(
+    () => fasseZusammen(bestaende, (position) => position.sector, einstand),
+    [bestaende],
+  )
+  const laender = useMemo(
+    () => fasseZusammen(bestaende, (position) => landName(position.countryCode), einstand),
+    [bestaende],
+  )
+
+  const gefiltert = bestaende.filter(
+    (position) =>
+      (sektor === null || position.sector === sektor) &&
+      (land === null || landName(position.countryCode) === land),
+  )
+
+  function hebeFilterAuf(): void {
+    setSektor(null)
+    setLand(null)
+  }
 
   return (
-    <Box sx={{ maxWidth: 900, py: 3 }}>
-      <Typography variant="h5" component="h1" gutterBottom>
-        Dashboard
-      </Typography>
+    <>
+      <PageHeader title="Dashboard" subtitle={`Portfolio ${portfolio.name}`} />
 
-      <Alert severity="warning" sx={{ mb: 3 }}>
-        <AlertTitle>Beispieldaten (YOUNGOITV-451)</AlertTitle>
-        Die Zahlen unten sind fest verdrahtet und stammen nicht aus dem Backend. Sie stehen hier,
-        solange die Anbindung von Gesamtwert, Positionstabelle und Klassifizierung offen ist, und
-        dienen der Sichtprüfung der Farb-Tokens in beiden Farbmodi.
-      </Alert>
+      <Stack spacing={3}>
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 2,
+            gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(4, 1fr)' },
+          }}
+        >
+          <KpiCard
+            label="Einstandswert Bestände"
+            value={formatMoney(einstandSumme, waehrung)}
+            hint={`${bestaende.length} Position(en) in ${waehrung}`}
+            isPending={positions.isPending}
+            error={positions.error}
+            onRetry={() => void positions.refetch()}
+          />
+          <KpiCard
+            label="Cash"
+            value={formatMoney(cashSumme, waehrung)}
+            hint={`Konten in ${waehrung}`}
+            isPending={accounts.isPending}
+            error={accounts.error}
+            onRetry={() => void accounts.refetch()}
+          />
+          <KpiCard
+            label="Realisierte Gewinne"
+            value={formatMoney(realizedGains.data?.amount, realizedGains.data?.currency)}
+            hint="Gesamte Historie, vom Backend umgerechnet"
+            tone={toneFor(realizedGains.data?.amount)}
+            isPending={realizedGains.isPending}
+            error={realizedGains.error}
+            onRetry={() => void realizedGains.refetch()}
+          />
+          <KpiCard
+            label="Dividenden"
+            value={formatMoney(dividends.data?.amount, dividends.data?.currency)}
+            hint="Gesamte Historie, vom Backend umgerechnet"
+            isPending={dividends.isPending}
+            error={dividends.error}
+            onRetry={() => void dividends.refetch()}
+          />
+        </Box>
 
-      <Card sx={{ mb: 3 }}>
-        <CardContent sx={{ p: { xs: 2, md: 3 } }}>
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            Gesamtwert Portfolio
-          </Typography>
-          <Stack direction="row" spacing={1.5} sx={{ mb: 3, alignItems: 'baseline' }}>
-            <Typography variant="h4" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-              CHF {CHF.format(total)}
-            </Typography>
-            <Typography
-              variant="h6"
-              sx={{
-                fontVariantNumeric: 'tabular-nums',
-                color: (theme) => theme.vars.palette.finance.gainText,
-              }}
+        <Alert severity="info">
+          <AlertTitle>Marktwert, Gewinn/Verlust und TWR/MWR fehlen</AlertTitle>
+          Das Backend liefert zu Beständen keine Kursdaten und hat für zeitgewichtete Renditen noch
+          keinen Endpunkt. Die Karten zeigen deshalb den Einstandswert und nicht den heutigen Wert.
+          Alles hier stammt aus der Datenbank und ist unabhängig von externen Kursabrufen.
+        </Alert>
+
+        <Card>
+          <CardContent>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={2}
+              sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between', mb: 2 }}
             >
-              {PERCENT.format(4.2)} %
-            </Typography>
-          </Stack>
+              <Typography variant="subtitle2" component="h2">
+                Aufteilung nach Einstandswert
+              </Typography>
+              {bestandsWaehrungen.length > 1 && (
+                <ToggleButtonGroup
+                  size="small"
+                  exclusive
+                  value={waehrung}
+                  onChange={(_event, value: string | null) => {
+                    // null kommt beim Klick auf die schon aktive Schaltfläche. Dann bleibt die
+                    // Auswahl stehen, sonst gäbe es einen Zustand ohne Währung und ohne Diagramm.
+                    if (value !== null) {
+                      setGewaehlteWaehrung(value)
+                      hebeFilterAuf()
+                    }
+                  }}
+                  aria-label="Handelswährung"
+                >
+                  {bestandsWaehrungen.map((code) => (
+                    <ToggleButton key={code} value={code}>
+                      {code}
+                    </ToggleButton>
+                  ))}
+                </ToggleButtonGroup>
+              )}
+            </Stack>
 
-          <TableContainer>
-            <Table size="medium">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Symbol</TableCell>
-                  <TableCell align="right">Anzahl</TableCell>
-                  <TableCell align="right">Wert CHF</TableCell>
-                  <TableCell align="right">Veränderung</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {DEMO_POSITIONS.map((position) => (
-                  <TableRow key={position.symbol}>
-                    <TableCell sx={{ fontWeight: 600 }}>{position.symbol}</TableCell>
-                    <TableCell align="right">{position.quantity}</TableCell>
-                    <TableCell align="right">{CHF.format(position.value)}</TableCell>
-                    <TableCell
-                      align="right"
-                      sx={{
-                        fontWeight: 700,
-                        color: (theme) =>
-                          position.changePercent >= 0
-                            ? theme.vars.palette.finance.gainText
-                            : theme.vars.palette.finance.lossText,
-                      }}
-                    >
-                      {PERCENT.format(position.changePercent)} %
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent sx={{ p: { xs: 2, md: 3 } }}>
-          <Typography variant="subtitle2" gutterBottom>
-            Theme-Tokens
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Sichtprüfung für beide Farbmodi. Alle Werte stammen aus dem Theme, keine Literale im
-            Komponentencode.
-          </Typography>
-
-          <Stack direction="row" spacing={1} useFlexGap sx={{ mb: 3, flexWrap: 'wrap' }}>
-            {DEMO_BADGES.map((badge) => (
-              <Box
-                key={badge.token}
-                sx={{
-                  px: 1.5,
-                  py: 0.5,
-                  borderRadius: 999,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  bgcolor: (theme) => theme.vars.palette.finance[badge.token].background,
-                  color: (theme) => theme.vars.palette.finance[badge.token].color,
-                }}
-              >
-                {badge.label}
-              </Box>
-            ))}
-          </Stack>
-
-          <Divider sx={{ mb: 2 }} />
-
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            Diagramm-Palette für Recharts
-          </Typography>
-          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
-            {Array.from({ length: 8 }, (_unused, index) => index).map((index) => (
-              <Box
-                key={index}
-                sx={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 10 / 8,
-                  bgcolor: (theme) => theme.vars.palette.finance.chart[index],
-                }}
+            {positions.isPending ? (
+              <LoadingPanel rows={3} />
+            ) : positions.isError ? (
+              <ErrorPanel
+                error={positions.error}
+                onRetry={() => void positions.refetch()}
+                title="Bestände konnten nicht geladen werden"
               />
-            ))}
-          </Stack>
-        </CardContent>
-      </Card>
+            ) : (
+              <>
+                <Box
+                  sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}
+                >
+                  <DonutChart
+                    title="Sektor"
+                    slices={sektoren}
+                    currency={waehrung}
+                    selected={sektor}
+                    onSelect={setSektor}
+                    empty="Kein Bestand in dieser Währung."
+                  />
+                  <DonutChart
+                    title="Land"
+                    slices={laender}
+                    currency={waehrung}
+                    selected={land}
+                    onSelect={setLand}
+                    empty="Kein Bestand in dieser Währung."
+                  />
+                </Box>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: 'block', mt: 2 }}
+                >
+                  Anteile innerhalb der Handelswährung {waehrung}. Über Währungen hinweg wird nicht
+                  summiert, weil das Backend für Bestände keine Umrechnung anbietet.
+                </Typography>
+              </>
+            )}
+          </CardContent>
+        </Card>
 
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 3 }}>
-        Backend-Basis-URL: <code>{apiBaseUrl}</code>
-      </Typography>
-    </Box>
+        <Card>
+          <CardContent sx={{ p: { xs: 1, sm: 2 } }}>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              sx={{ alignItems: { sm: 'baseline' }, justifyContent: 'space-between', mb: 2, px: 1 }}
+            >
+              <Typography variant="subtitle2" component="h2">
+                Positionen
+              </Typography>
+              {(sektor !== null || land !== null) && (
+                <Button size="small" onClick={hebeFilterAuf}>
+                  Filter aufheben
+                </Button>
+              )}
+            </Stack>
+
+            {positions.isPending ? (
+              <LoadingPanel rows={4} />
+            ) : positions.isError ? (
+              <ErrorPanel
+                error={positions.error}
+                onRetry={() => void positions.refetch()}
+                title="Bestände konnten nicht geladen werden"
+              />
+            ) : gefiltert.length === 0 ? (
+              <EmptyPanel>
+                {alleBestaende.length === 0
+                  ? 'Noch kein Bestand. Auf der Transaktionen-Seite einen Kauf buchen, danach steht hier die Aufteilung.'
+                  : 'Keine Position passt zum gewählten Filter.'}
+              </EmptyPanel>
+            ) : (
+              <Positionen rows={gefiltert} />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent sx={{ p: { xs: 1, sm: 2 } }}>
+            <Typography variant="subtitle2" component="h2" sx={{ mb: 2, px: 1 }}>
+              Bestand je Währung
+            </Typography>
+            {positions.isPending || accounts.isPending ? (
+              <LoadingPanel rows={2} />
+            ) : (
+              <Waehrungen positions={alleBestaende} accounts={alleKonten} />
+            )}
+          </CardContent>
+        </Card>
+      </Stack>
+    </>
+  )
+}
+
+function Positionen({ rows }: { rows: readonly Position[] }) {
+  const columns: readonly Column<Position>[] = [
+    { key: 'symbol', label: 'Symbol', render: (row) => row.symbol, primary: true },
+    { key: 'name', label: 'Wertpapier', render: (row) => row.securityName },
+    {
+      key: 'sector',
+      label: 'Sektor',
+      render: (row) => row.sector ?? missingValue,
+      hideOnMobile: true,
+    },
+    {
+      key: 'country',
+      label: 'Land',
+      render: (row) => landName(row.countryCode) ?? missingValue,
+      hideOnMobile: true,
+    },
+    {
+      key: 'quantity',
+      label: 'Menge',
+      align: 'right',
+      render: (row) => formatQuantity(row.totalQuantity),
+    },
+    {
+      key: 'average',
+      label: 'Ø Kaufpreis',
+      align: 'right',
+      render: (row) => formatMoney(row.averagePurchasePrice, row.tradingCurrency),
+    },
+    {
+      key: 'total',
+      label: 'Einstandswert',
+      align: 'right',
+      render: (row) => formatMoney(einstand(row), row.tradingCurrency),
+    },
+  ]
+
+  return (
+    <ResponsiveTable
+      label="Positionen"
+      columns={columns}
+      rows={rows}
+      rowKey={(row) => row.id}
+      actions={(row) => (
+        // Verlinkt in die Tranchen-Ansicht der Transaktionen-Seite, über Query-Parameter wie im
+        // Original (UI/UX-Plan, FIFO-Tranchen-Detail).
+        <Button
+          size="small"
+          component={RouterLink}
+          to={`/transaktionen?konto=${row.accountId}&wertpapier=${row.securityId}`}
+        >
+          Tranchen
+        </Button>
+      )}
+    />
+  )
+}
+
+interface WaehrungsZeile {
+  currency: string
+  anzahl: number
+  einstandSumme: number
+  cash: number
+}
+
+/**
+ * Bestand und Cash je Währung.
+ *
+ * Bewusst ohne Anteilsspalte und ohne Gesamtzeile: beides bräuchte eine Umrechnung. Die Tabelle
+ * stellt die Währungen nebeneinander, statt sie zu einer Zahl zu verschmelzen, die es nicht gibt.
+ */
+function Waehrungen({
+  positions,
+  accounts,
+}: {
+  positions: readonly Position[]
+  accounts: readonly { currency: string; cashAmount: number }[]
+}) {
+  const codes = [
+    ...new Set([
+      ...positions.map((position) => position.tradingCurrency),
+      ...accounts.map((account) => account.currency),
+    ]),
+  ].sort()
+
+  const rows: WaehrungsZeile[] = codes.map((currency) => ({
+    currency,
+    anzahl: positions.filter((position) => position.tradingCurrency === currency).length,
+    einstandSumme: positions
+      .filter((position) => position.tradingCurrency === currency)
+      .reduce((summe, position) => summe + einstand(position), 0),
+    cash: accounts
+      .filter((account) => account.currency === currency)
+      .reduce((summe, account) => summe + account.cashAmount, 0),
+  }))
+
+  if (rows.length === 0) {
+    return <EmptyPanel>Noch kein Konto und kein Bestand in diesem Portfolio.</EmptyPanel>
+  }
+
+  const columns: readonly Column<WaehrungsZeile>[] = [
+    { key: 'currency', label: 'Währung', render: (row) => row.currency, primary: true },
+    {
+      key: 'count',
+      label: 'Positionen',
+      align: 'right',
+      render: (row) => formatQuantity(row.anzahl),
+    },
+    {
+      key: 'total',
+      label: 'Einstandswert',
+      align: 'right',
+      render: (row) => formatMoney(row.einstandSumme, row.currency),
+    },
+    {
+      key: 'cash',
+      label: 'Cash',
+      align: 'right',
+      render: (row) => formatMoney(row.cash, row.currency),
+    },
+  ]
+
+  return (
+    <ResponsiveTable
+      label="Bestand je Währung"
+      columns={columns}
+      rows={rows}
+      rowKey={(row) => row.currency}
+    />
   )
 }
