@@ -42,7 +42,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setGlobalErrorHandler((error: ApiError) => {
       if (error.status === 403) {
-        notify('Kein Zugriff auf dieses Portfolio. Es gehört einem anderen Benutzer.', 'warning')
+        // Seit der Verwaltung (YOUNGOITV-460) kann ein 403 zwei Dinge heissen: ein fremdes Portfolio
+        // oder eine fehlende Administratorrolle. Unterschieden wird am Pfad, weil der Fehlerkörper des
+        // Backends dazu nichts hergibt und eine Meldung über Portfolios in der Verwaltung schlicht
+        // falsch wäre.
+        notify(
+          location.pathname.startsWith('/verwaltung')
+            ? 'Kein Zugriff auf die Verwaltung. Dafür braucht es die Administratorrolle.'
+            : 'Kein Zugriff auf dieses Portfolio. Es gehört einem anderen Benutzer.',
+          'warning',
+        )
         // Nur weg von der Seite, die den 403 ausgelöst hat. Vom Dashboard aus wäre es eine Umleitung
         // auf sich selbst, die die Meldung nur wegblinken liesse.
         if (location.pathname !== '/') {

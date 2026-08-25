@@ -60,7 +60,8 @@ export interface FakeAccount {
 export interface FakeSecurity {
   id: number
   symbol: string
-  isin: string
+  /** Optional wie im Backend: ein neu angelegtes Wertpapier kommt auch ohne ISIN durch. */
+  isin: string | null
   name: string
   assetType: string
   exchangeCode: string | null
@@ -69,6 +70,15 @@ export interface FakeSecurity {
   sector: string | null
   couponRate: number | null
   maturityDate: string | null
+}
+
+/** `FxRateResponseDto`. */
+export interface FakeFxRate {
+  id: number
+  baseCurrency: string
+  quoteCurrency: string
+  rateDate: string
+  rate: number
 }
 
 export interface FakeTransaction {
@@ -210,6 +220,8 @@ export interface FakeBackend {
   portfolios: FakePortfolio[]
   accounts: FakeAccount[]
   securities: FakeSecurity[]
+  /** Ausgangsbestand leer: das Backend liefert Kurse nur, wenn ein Admin sie erfasst hat. */
+  fxRates: FakeFxRate[]
   transactions: FakeTransaction[]
   positions: FakePosition[]
   lots: FakeLot[]
@@ -752,6 +764,7 @@ export function installFakeBackend(): FakeBackend {
   const portfolios = defaultPortfolios()
   const accounts = defaultAccounts()
   const securities = defaultSecurities()
+  const fxRates: FakeFxRate[] = []
   const transactions = defaultTransactions()
   const positions = defaultPositions()
   const lots = defaultLots()
@@ -1155,6 +1168,139 @@ export function installFakeBackend(): FakeBackend {
       return Promise.resolve(ok(sortiert, 200, config))
     }
 
+    /**
+     * Rollenprüfung der Stammdaten-Endpunkte, Wortlaut aus `AdminCheckService.requireAdmin`.
+     *
+     * Gibt den Fehler zurück statt ihn zu werfen, damit der aufrufende Zweig ihn wie jede andere
+     * Antwort weiterreichen kann.
+     */
+    function requireAdmin(): Promise<never> | null {
+      const angemeldet = users.find((candidate) => candidate.username === username)
+      if (angemeldet?.role !== 'ADMIN') {
+        return fail(403, 'Forbidden', 'This operation requires the ADMIN role', config)
+      }
+      return null
+    }
+
+    if (method === 'POST' && url === '/securities') {
+      const verweigert = requireAdmin()
+      if (verweigert !== null) {
+        return verweigert
+      }
+      const body = readBody(config)
+      const assetType = String(body.assetType)
+      const istAnleihe = assetType.toUpperCase() === 'BOND'
+      if (!istAnleihe && (body.couponRate !== null || body.maturityDate !== null)) {
+        // Wortlaut der InvalidSecurityDataException.
+        return fail(
+          400,
+          'Bad Request',
+          `couponRate/maturityDate are only allowed for assetType BOND, not ${assetType}`,
+          config,
+        )
+      }
+      const symbol = String(body.symbol)
+      if (securities.some((candidate) => candidate.symbol === symbol)) {
+        // Absichtlich ein 500er und kein 409: `securities.symbol` ist in der Datenbank eindeutig, aber
+        // das Backend fängt die Verletzung nicht ab. Ein freundlicher 409 hier würde der Oberfläche
+        // eine Auskunft vortäuschen, die sie im Betrieb nicht bekommt, und die Dublettenprüfung des
+        // Formulars sähe unnötig aus.
+        return fail(
+          500,
+          'Internal Server Error',
+          'org.springframework.dao.DataIntegrityViolationException: could not execute statement [Unique index or primary key violation: PUBLIC.UK_SECURITIES_SYMBOL_INDEX]',
+          config,
+        )
+      }
+      const created: FakeSecurity = {
+        id: nextId(securities, 200),
+        symbol,
+        isin: body.isin === null || body.isin === undefined ? null : String(body.isin),
+        name: String(body.name),
+        assetType,
+        exchangeCode: body.exchangeCode === null ? null : String(body.exchangeCode),
+        tradingCurrency: String(body.tradingCurrency),
+        countryCode: body.countryCode === null ? null : String(body.countryCode),
+        sector: body.sector === null ? null : String(body.sector),
+        // Wie im Backend: bei allem ausser einer Anleihe bleiben beide Felder leer, selbst wenn sie
+        // mitgeschickt wurden.
+        couponRate: istAnleihe ? optionalNumber(body.couponRate) : null,
+        maturityDate: istAnleihe && body.maturityDate !== null ? String(body.maturityDate) : null,
+      }
+      securities.push(created)
+      return Promise.resolve(ok(created, 201, config))
+    }
+
+    if (url === '/fx-rates') {
+      if (method === 'POST') {
+        const verweigert = requireAdmin()
+        if (verweigert !== null) {
+          return verweigert
+        }
+        const body = readBody(config)
+        const created: FakeFxRate = {
+          id: nextId(fxRates, 300),
+          baseCurrency: String(body.baseCurrency),
+          quoteCurrency: String(body.quoteCurrency),
+          rateDate: String(body.rateDate),
+          rate: Number(body.rate),
+        }
+        fxRates.push(created)
+        return Promise.resolve(ok(created, 201, config))
+      }
+      if (method === 'GET') {
+        // Lesen ist offen, nur Schreiben ist Admin-Sache (User-Rollen-Plan).
+        const { base, quote, date } = readParams(config)
+        const treffer = fxRates
+          .filter(
+            (kurs) =>
+              kurs.baseCurrency === base &&
+              kurs.quoteCurrency === quote &&
+              kurs.rateDate <= String(date),
+          )
+          // Jüngster Kurs am oder vor dem Stichtag, wie `findLatestOnOrBefore`.
+          .sort((left, right) => right.rateDate.localeCompare(left.rateDate))[0]
+        if (treffer === undefined) {
+          // Ein fehlender Kurs ist im Backend ein 400er und kein 404er, siehe GlobalExceptionHandler.
+          return fail(
+            400,
+            'Bad Request',
+            `No FX rate available for ${String(base)}/${String(quote)} on or before ${String(date)}`,
+            config,
+          )
+        }
+        return Promise.resolve(ok(treffer, 200, config))
+      }
+    }
+
+    const roleMatch = /^\/users\/(\d+)\/role$/.exec(url)
+    if (roleMatch !== null && method === 'PATCH') {
+      const angemeldet = users.find((candidate) => candidate.username === username)
+      if (angemeldet?.role !== 'ADMIN') {
+        // Eigener Wortlaut, nicht der von requireAdmin: die Rolle prüft hier der UserService selbst.
+        return fail(403, 'Forbidden', "Only an ADMIN may change a user's role", config)
+      }
+      const id = Number(roleMatch[1])
+      const ziel = users.find((candidate) => candidate.id === id)
+      if (ziel === undefined) {
+        return fail(404, 'Not Found', `User ${id} not found`, config)
+      }
+      ziel.role = String(readBody(config).role) as FakeUser['role']
+      return Promise.resolve(
+        ok(
+          {
+            id: ziel.id,
+            username: ziel.username,
+            email: ziel.email,
+            role: ziel.role,
+            createdAt: timestamp,
+          },
+          200,
+          config,
+        ),
+      )
+    }
+
     const historyMatch = /^\/portfolios\/(\d+)\/transactions$/.exec(url)
     if (historyMatch !== null && method === 'GET') {
       const portfolioId = Number(historyMatch[1])
@@ -1355,6 +1501,7 @@ export function installFakeBackend(): FakeBackend {
     portfolios,
     accounts,
     securities,
+    fxRates,
     transactions,
     positions,
     lots,

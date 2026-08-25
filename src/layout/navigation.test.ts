@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isNavItemActive, navItems } from './navigation'
+import { isNavItemActive, navItems, navItemsFor } from './navigation'
 
 function itemFor(path: string) {
   const item = navItems.find((candidate) => candidate.path === path)
@@ -10,8 +10,10 @@ function itemFor(path: string) {
 }
 
 describe('navItems', () => {
-  it('enthält die sechs Bereiche des Originals', () => {
-    expect(navItems.map((item) => item.label)).toEqual([
+  it('enthält die sechs Bereiche des Originals ohne Rollenbindung', () => {
+    // Die Verwaltung kommt aus dem Nachbau (YOUNGOITV-460) und hängt an einer Rolle, die sechs
+    // Bereiche des Originals stehen für jeden angemeldeten Benutzer.
+    expect(navItems.filter((item) => item.role === undefined).map((item) => item.label)).toEqual([
       'Dashboard',
       'Performance',
       'Risiko',
@@ -31,6 +33,27 @@ describe('navItems', () => {
     for (const item of navItems) {
       expect(item.path.startsWith('/')).toBe(true)
     }
+  })
+})
+
+describe('navItemsFor', () => {
+  it('gibt einem Admin alle Einträge', () => {
+    expect(navItemsFor('ADMIN')).toEqual(navItems)
+  })
+
+  it('lässt die Verwaltung bei allen anderen Rollen weg', () => {
+    // Die Rollen sind nicht hierarchisch: ein Manager hat mehr Rechte als ein Privatanleger, aber
+    // keine Stammdatenrechte. Ein Vergleich per Rangfolge würde hier durchlassen.
+    for (const rolle of ['PRIVATANLEGER', 'MANAGER'] as const) {
+      expect(navItemsFor(rolle).map((item) => item.path)).not.toContain('/verwaltung')
+      expect(navItemsFor(rolle)).toHaveLength(navItems.length - 1)
+    }
+  })
+
+  it('zeigt ohne bekannte Rolle nur die freien Einträge', () => {
+    // `null` heisst "Rolle noch nicht geladen". Dann lieber einen Eintrag zu wenig als einen, der
+    // beim Öffnen sofort zurückwirft.
+    expect(navItemsFor(null).map((item) => item.path)).not.toContain('/verwaltung')
   })
 })
 

@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthProvider'
 import { LoginPage } from './auth/LoginPage'
 import { RegisterPage } from './auth/RegisterPage'
+import { RequireAdmin } from './auth/RequireAdmin'
 import { RequireAuth } from './auth/RequireAuth'
 import { NotificationProvider } from './feedback/NotificationProvider'
 import { AppLayout } from './layout/AppLayout'
@@ -11,6 +12,7 @@ import { PerformancePage } from './pages/PerformancePage'
 import { RisikoPage } from './pages/RisikoPage'
 import { TransaktionenPage } from './pages/TransaktionenPage'
 import { VergleichePage } from './pages/VergleichePage'
+import { VerwaltungPage } from './pages/VerwaltungPage'
 
 /**
  * Routen der Anwendung.
@@ -37,6 +39,11 @@ function App() {
               <Route path="transaktionen" element={<TransaktionenPage />} />
               <Route path="konten" element={<KontenPage />} />
               <Route path="szenario" element={<VergleichePage />} />
+
+              {/* Zweiter Guard innerhalb des Layouts: die Verwaltung braucht die Rolle ADMIN. */}
+              <Route element={<RequireAdmin />}>
+                <Route path="verwaltung" element={<VerwaltungPage />} />
+              </Route>
             </Route>
           </Route>
 
