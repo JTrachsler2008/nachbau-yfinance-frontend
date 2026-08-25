@@ -22,7 +22,7 @@ import { Link as RouterLink, Outlet, useLocation, useNavigate } from 'react-rout
 import { useAuth } from '../auth/useAuth'
 import { PortfolioMenu } from '../portfolios/PortfolioMenu'
 import { ModeToggle } from '../theme/ModeToggle'
-import { isNavItemActive, navItems } from './navigation'
+import { isNavItemActive, navItemsFor } from './navigation'
 
 const drawerWidth = 240
 
@@ -40,7 +40,9 @@ export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
-  const { username, logout } = useAuth()
+  const { username, role, logout } = useAuth()
+  // Die Verwaltung erscheint nur für einen Admin (YOUNGOITV-460).
+  const items = navItemsFor(role)
 
   function handleLogout(): void {
     logout()
@@ -50,7 +52,7 @@ export function AppShell() {
   const navigation = (
     <Box role="navigation" aria-label="Hauptnavigation">
       <List sx={{ py: 1 }}>
-        {navItems.map((item) => {
+        {items.map((item) => {
           const active = isNavItemActive(item, location.pathname)
           const Icon = item.icon
           return (
