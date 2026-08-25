@@ -3,25 +3,28 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { useNavigate } from 'react-router-dom'
 import { setAuthToken, setUnauthorizedHandler } from '../api/client'
 import { AuthContext, type AuthContextValue } from './AuthContext'
-import { fetchMe, requestLogin } from './authApi'
+import { fetchMe, requestLogin, type UserRole } from './authApi'
 
 /**
  * Hält den Anmeldezustand.
  *
  * Das Token selbst liegt in `api/client.ts` im Modulspeicher und bewusst nicht in `localStorage`
- * (Architektur-Plan, SEC-1/SEC-2). Folge: ein Reload der Seite meldet ab. Hier wird nur der
- * Benutzername als React-State gehalten, damit die Oberfläche auf An- und Abmelden reagiert.
+ * (Architektur-Plan, SEC-1/SEC-2). Folge: ein Reload der Seite meldet ab. Hier werden nur
+ * Benutzername und Rolle als React-State gehalten, damit die Oberfläche auf An- und Abmelden
+ * reagiert und rollenabhängige Bereiche ein- oder ausblenden kann.
  *
  * Muss innerhalb des Routers stehen, weil der 401-Haken auf die Login-Seite umleitet.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [username, setUsername] = useState<string | null>(null)
+  const [role, setRole] = useState<UserRole | null>(null)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
   const logout = useCallback((): void => {
     setAuthToken(null)
     setUsername(null)
+    setRole(null)
     // Ohne Leeren würden Daten des abgemeldeten Users beim nächsten Login kurz sichtbar bleiben,
     // bis React Query sie als veraltet nachlädt.
     queryClient.clear()
@@ -43,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const me = await fetchMe()
       setUsername(me.username)
+      setRole(me.role)
     } catch (error) {
       // Token verwerfen, wenn es zwar ausgestellt wurde, der Folgeaufruf aber scheitert. Sonst
       // gäbe es einen halb angemeldeten Zustand mit gültigem Token und leerer Oberfläche.
@@ -52,8 +56,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ username, isAuthenticated: username !== null, login, logout }),
-    [username, login, logout],
+    () => ({ username, role, isAuthenticated: username !== null, login, logout }),
+    [username, role, login, logout],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

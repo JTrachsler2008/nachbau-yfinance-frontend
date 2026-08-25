@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import {
+  assignManager,
   createPortfolio,
   deletePortfolio,
+  fetchManagedPortfolios,
   fetchPortfolios,
   updatePortfolio,
   type Portfolio,
@@ -17,10 +19,27 @@ import {
  */
 export const portfolioKeys = {
   all: ['portfolios'] as const,
+  /** Beginnt mit `all`, damit ein Invalidieren von `all` die Mandatsliste mitnimmt. */
+  managed: ['portfolios', 'managed'] as const,
 }
 
 export function usePortfolios(): UseQueryResult<Portfolio[]> {
   return useQuery({ queryKey: portfolioKeys.all, queryFn: fetchPortfolios })
+}
+
+/**
+ * Mandate des angemeldeten Managers (YOUNGOITV-459).
+ *
+ * `enabled` statt eines Aufrufs in jedem Fall: der Endpunkt antwortet einem Privatanleger mit einer
+ * leeren Liste, die Anfrage wäre aber bei jeder Anmeldung umsonst. Fällt die Rolle weg, hört die
+ * Abfrage auf, statt weiter im Hintergrund zu laufen.
+ */
+export function useManagedPortfolios(enabled: boolean): UseQueryResult<Portfolio[]> {
+  return useQuery({
+    queryKey: portfolioKeys.managed,
+    queryFn: fetchManagedPortfolios,
+    enabled,
+  })
 }
 
 export function useCreatePortfolio() {
@@ -38,6 +57,23 @@ export function useUpdatePortfolio() {
   return useMutation({
     mutationFn: ({ id, input }: { id: number; input: Partial<PortfolioInput> }) =>
       updatePortfolio(id, input),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: portfolioKeys.all })
+    },
+  })
+}
+
+/**
+ * Manager zuordnen oder die Zuordnung entfernen.
+ *
+ * Invalidiert `all` und damit auch die Mandatsliste: nach dem Zuordnen betreut der Manager ein
+ * Portfolio mehr, nach dem Entfernen eines weniger.
+ */
+export function useAssignManager() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, managerUserId }: { id: number; managerUserId: number | null }) =>
+      assignManager(id, managerUserId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: portfolioKeys.all })
     },
