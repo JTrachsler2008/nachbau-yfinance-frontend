@@ -5,6 +5,7 @@ import {
   type AssetClassComparison,
   type ComparePortfoliosInput,
   type PortfolioComparison,
+  type VergleichsZeitraum,
 } from './compareApi'
 
 /**
@@ -13,7 +14,12 @@ import {
  * den alten Verlauf.
  */
 export const compareKeys = {
-  assetClasses: (period: number) => ['compare', 'asset-classes', period] as const,
+  assetClasses: (zeitraum: VergleichsZeitraum) =>
+    [
+      'compare',
+      'asset-classes',
+      zeitraum.kind === 'preset' ? zeitraum.periodYears : `${zeitraum.from}..${zeitraum.to}`,
+    ] as const,
   portfolios: (input: ComparePortfoliosInput | null) => ['compare', 'portfolios', input] as const,
 }
 
@@ -29,10 +35,14 @@ const langsameAbfrage = {
   retry: false,
 } as const
 
-export function useAssetClassComparison(period: number): UseQueryResult<AssetClassComparison> {
+export function useAssetClassComparison(
+  zeitraum: VergleichsZeitraum,
+  enabled = true,
+): UseQueryResult<AssetClassComparison> {
   return useQuery({
-    queryKey: compareKeys.assetClasses(period),
-    queryFn: () => fetchAssetClassComparison(period),
+    queryKey: compareKeys.assetClasses(zeitraum),
+    queryFn: () => fetchAssetClassComparison(zeitraum),
+    enabled,
     ...langsameAbfrage,
   })
 }

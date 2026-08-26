@@ -1,6 +1,7 @@
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import Stack from '@mui/material/Stack'
+import TextField from '@mui/material/TextField'
 import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
@@ -8,13 +9,17 @@ import { useState } from 'react'
 import { SeriesLineChart } from '../charts/SeriesLineChart'
 import { verlaufJeSerie, type LinePoint, type Serie } from '../charts/verlauf'
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/DataState'
-import { formatAmount, formatMonth } from '../format/numbers'
+import { gestern, vorJahren } from '../format/dates'
+import { formatAmount, formatDate, formatMonth } from '../format/numbers'
 import { SimulationBadge } from './SimulationBadge'
 import { VerlaufTabelle } from './VerlaufTabelle'
 import { useAssetClassComparison } from './useCompare'
 
 /** Zeiträume wie im Original als Presets. Der Endpunkt erlaubt 1 bis 100 Jahre. */
 const zeitraeume = [1, 3, 5, 10] as const
+
+/** Sentinel-Wert der Zeitraum-Auswahl für "eigenes Intervall", damit ein einziges Bedienelement reicht. */
+const BENUTZERDEFINIERT = 'custom'
 
 /**
  * Vergleich der Standard-Anlageklassen (YOUNGOITV-454).
@@ -26,8 +31,19 @@ const zeitraeume = [1, 3, 5, 10] as const
  * bleibt.
  */
 export function AnlageklassenVergleich() {
-  const [period, setPeriod] = useState<number>(10)
-  const vergleich = useAssetClassComparison(period)
+  const [auswahl, setAuswahl] = useState<number | typeof BENUTZERDEFINIERT>(10)
+  const [customFrom, setCustomFrom] = useState(vorJahren(1))
+  const [customTo, setCustomTo] = useState(gestern())
+
+  const istBenutzerdefiniert = auswahl === BENUTZERDEFINIERT
+  const customGueltig = customFrom !== '' && customTo !== '' && customFrom < customTo
+  const zeitraum = istBenutzerdefiniert
+    ? ({ kind: 'custom', from: customFrom, to: customTo } as const)
+    : ({ kind: 'preset', periodYears: auswahl } as const)
+  const vergleich = useAssetClassComparison(zeitraum, !istBenutzerdefiniert || customGueltig)
+  const zeitraumLabel = istBenutzerdefiniert
+    ? `${formatDate(customFrom)}–${formatDate(customTo)}`
+    : `${auswahl} ${auswahl === 1 ? 'Jahr' : 'Jahre'}`
 
   const serien: Serie[] = (vergleich.data?.assetClasses ?? []).map((klasse) => ({
     key: klasse.symbol,
@@ -56,10 +72,10 @@ export function AnlageklassenVergleich() {
           <ToggleButtonGroup
             size="small"
             exclusive
-            value={period}
-            onChange={(_event, wert: number | null) => {
+            value={auswahl}
+            onChange={(_event, wert: number | typeof BENUTZERDEFINIERT | null) => {
               if (wert !== null) {
-                setPeriod(wert)
+                setAuswahl(wert)
               }
             }}
             aria-label="Zeitraum"
@@ -69,8 +85,33 @@ export function AnlageklassenVergleich() {
                 {jahre} {jahre === 1 ? 'Jahr' : 'Jahre'}
               </ToggleButton>
             ))}
+            <ToggleButton value={BENUTZERDEFINIERT}>Benutzerdefiniert</ToggleButton>
           </ToggleButtonGroup>
         </Stack>
+
+        {istBenutzerdefiniert && (
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
+            <TextField
+              label="Von"
+              type="date"
+              size="small"
+              value={customFrom}
+              onChange={(event) => setCustomFrom(event.target.value)}
+              error={!customGueltig}
+              slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: gestern() } }}
+            />
+            <TextField
+              label="Bis"
+              type="date"
+              size="small"
+              value={customTo}
+              onChange={(event) => setCustomTo(event.target.value)}
+              error={!customGueltig}
+              helperText={customGueltig ? undefined : '"Von" muss vor "Bis" liegen, "Bis" höchstens gestern.'}
+              slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: gestern() } }}
+            />
+          </Stack>
+        )}
 
         {vergleich.isPending ? (
           <LoadingPanel
@@ -91,7 +132,7 @@ export function AnlageklassenVergleich() {
         ) : (
           <Stack spacing={2}>
             <SeriesLineChart
-              title={`Normalisierter Verlauf über ${period} ${period === 1 ? 'Jahr' : 'Jahre'}`}
+              title={`Normalisierter Verlauf über ${zeitraumLabel}`}
               points={punkte}
               series={serien}
               formatValue={(wert) => formatAmount(wert)}

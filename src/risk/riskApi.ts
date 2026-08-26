@@ -50,19 +50,36 @@ export interface RiskAnalysis {
   sharpeRatio: number | null
   beta: number | null
   maxDrawdown: number | null
+  /**
+   * Höchststand und Tiefpunkt von `maxDrawdown`. Zusammen mit `maxDrawdown` selbst `null`, wenn der
+   * Rückgang nicht bestimmbar ist - ein Rückgang an einem Tag liest sich anders als einer über ein
+   * Jahr, auch bei derselben Prozentzahl.
+   */
+  maxDrawdownPeakDate: string | null
+  maxDrawdownTroughDate: string | null
   valueAtRisk95: number | null
   diversificationBenefit: number | null
   securities: SecurityRisk[]
   excluded: RiskExclusion[]
 }
 
+/**
+ * Zeitraum der Risikoanalyse: entweder ein Preset in Kalendertagen zurück, oder ein frei gewähltes
+ * Intervall. Eine Vereinigung statt zwei paralleler Felder, damit nie versehentlich beides zugleich
+ * an den Endpunkt geht - der nimmt zwar `from`/`to` vorrangig, aber eine Oberfläche, die "3 Monate"
+ * UND ein eigenes Datum gleichzeitig anzeigen könnte, wäre für sich schon irreführend.
+ */
+export type Zeitraum = { kind: 'preset'; lookbackDays: number } | { kind: 'custom'; from: string; to: string }
+
 export async function fetchRiskAnalysis(
   portfolioId: number,
-  lookbackDays: number,
+  zeitraum: Zeitraum,
   benchmark: string,
 ): Promise<RiskAnalysis> {
-  const { data } = await apiClient.get<RiskAnalysis>(`/portfolios/${portfolioId}/risk`, {
-    params: { lookbackDays, benchmark },
-  })
+  const params =
+    zeitraum.kind === 'preset'
+      ? { lookbackDays: zeitraum.lookbackDays, benchmark }
+      : { from: zeitraum.from, to: zeitraum.to, benchmark }
+  const { data } = await apiClient.get<RiskAnalysis>(`/portfolios/${portfolioId}/risk`, { params })
   return data
 }

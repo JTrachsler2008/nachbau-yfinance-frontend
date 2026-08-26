@@ -29,10 +29,19 @@ export interface AssetClassComparison {
   series: NormalizedSeriesPoint[]
 }
 
-export async function fetchAssetClassComparison(period: number): Promise<AssetClassComparison> {
-  const { data } = await apiClient.get<AssetClassComparison>('/compare/asset-classes', {
-    params: { period },
-  })
+/**
+ * Zeitraum eines Vergleichs: entweder ein Preset in Jahren zurück, oder ein frei gewähltes
+ * Intervall. Wie bei der Risiko-Seite eine Vereinigung statt zweier paralleler Felder, damit nie
+ * beides zugleich an den Endpunkt geht.
+ */
+export type VergleichsZeitraum =
+  | { kind: 'preset'; periodYears: number }
+  | { kind: 'custom'; from: string; to: string }
+
+export async function fetchAssetClassComparison(zeitraum: VergleichsZeitraum): Promise<AssetClassComparison> {
+  const params =
+    zeitraum.kind === 'preset' ? { period: zeitraum.periodYears } : { from: zeitraum.from, to: zeitraum.to }
+  const { data } = await apiClient.get<AssetClassComparison>('/compare/asset-classes', { params })
   return data
 }
 
@@ -51,7 +60,7 @@ export interface PortfolioComposition {
 export interface ComparePortfoliosInput {
   portfolioA: PortfolioComposition
   portfolioB: PortfolioComposition
-  periodYears: number
+  zeitraum: VergleichsZeitraum
 }
 
 /** `PortfolioComparisonPointDto`. `null` steht für ein Portfolio ohne Kurs an diesem Datum. */
@@ -74,6 +83,14 @@ export interface PortfolioComparison {
  * nicht in eine URL. Das Backend speichert nichts, der Aufruf bleibt eine Abfrage.
  */
 export async function comparePortfolios(input: ComparePortfoliosInput): Promise<PortfolioComparison> {
-  const { data } = await apiClient.post<PortfolioComparison>('/compare/portfolios', input)
+  const zeitraumFields =
+    input.zeitraum.kind === 'preset'
+      ? { periodYears: input.zeitraum.periodYears }
+      : { from: input.zeitraum.from, to: input.zeitraum.to }
+  const { data } = await apiClient.post<PortfolioComparison>('/compare/portfolios', {
+    portfolioA: input.portfolioA,
+    portfolioB: input.portfolioB,
+    ...zeitraumFields,
+  })
   return data
 }

@@ -80,6 +80,16 @@ describe('Risiko-Seite', () => {
     expect(within(karte('Value at Risk 95 %')).getByText('-1.95 %')).toBeInTheDocument()
   })
 
+  it('nennt Zeitpunkt und Dauer des maximalen Rückgangs, nicht nur die Prozentzahl', async () => {
+    await renderLoggedIn('/risiko')
+    await screen.findByRole('table', { name: 'Kennzahlen je Wertpapier' })
+
+    // Aus defaultRisk(): 2026-03-12 bis 2026-04-09, das sind 28 Tage.
+    expect(
+      within(karte('Maximaler Rückgang')).getByText('12.03.2026 bis 09.04.2026 (28 Tage)'),
+    ).toBeInTheDocument()
+  })
+
   it('nennt Vergleichsgrösse und Annahme zu Sharpe und Volatilität', async () => {
     await renderLoggedIn('/risiko')
     await screen.findByRole('table', { name: 'Kennzahlen je Wertpapier' })
@@ -106,15 +116,66 @@ describe('Risiko-Seite', () => {
     expect(letzteAbfrage()?.params).toEqual({ lookbackDays: 90, benchmark: 'SPY' })
   })
 
-  it('überträgt die gewählte Benchmark in die Abfrage und in die Beschriftung', async () => {
+  it('rechnet mit einem frei gewählten Zeitraum statt einem Preset', async () => {
+    const { user } = await renderLoggedIn('/risiko')
+    await screen.findByRole('table', { name: 'Kennzahlen je Wertpapier' })
+
+    await user.click(within(screen.getByRole('group', { name: 'Zeitraum' })).getByText('Benutzerdefiniert'))
+    const von = screen.getByLabelText('Von')
+    const bis = screen.getByLabelText('Bis')
+    await user.clear(von)
+    await user.type(von, '2025-01-01')
+    await user.clear(bis)
+    await user.type(bis, '2025-06-30')
+
+    await screen.findByRole('heading', { name: 'Volatilität gegen Rendite über 01.01.2025–30.06.2025' })
+    expect(letzteAbfrage()?.params).toEqual({ from: '2025-01-01', to: '2025-06-30', benchmark: 'SPY' })
+  })
+
+  it('lässt ein "Von" nach dem "Bis" nicht abfragen', async () => {
+    const { user } = await renderLoggedIn('/risiko')
+    await screen.findByRole('table', { name: 'Kennzahlen je Wertpapier' })
+
+    await user.click(within(screen.getByRole('group', { name: 'Zeitraum' })).getByText('Benutzerdefiniert'))
+    await user.clear(screen.getByLabelText('Von'))
+    await user.type(screen.getByLabelText('Von'), '2025-06-30')
+    await user.clear(screen.getByLabelText('Bis'))
+    await user.type(screen.getByLabelText('Bis'), '2025-01-01')
+
+    expect(screen.getByText(/"Von" muss vor "Bis" liegen/)).toBeInTheDocument()
+    // Keine Anfrage mit dieser ungültigen Kombination - unabhängig davon, was während des Tippens
+    // an Zwischenzuständen ausgelöst wurde.
+    expect(
+      backend.requests.some(
+        (request) =>
+          request.url === '/portfolios/10/risk' &&
+          (request.params as Record<string, unknown> | undefined)?.from === '2025-06-30' &&
+          (request.params as Record<string, unknown> | undefined)?.to === '2025-01-01',
+      ),
+    ).toBe(false)
+  })
+
+  it('überträgt die vorgeschlagene Benchmark in die Abfrage und in die Beschriftung', async () => {
     const { user } = await renderLoggedIn('/risiko')
     await screen.findByRole('table', { name: 'Kennzahlen je Wertpapier' })
 
     await user.click(screen.getByRole('combobox', { name: 'Benchmark' }))
-    await user.click(await screen.findByRole('option', { name: 'MSCI World (URTH)' }))
+    await user.click(await screen.findByRole('option', { name: 'URTH' }))
 
     expect(await screen.findByRole('heading', { name: 'Beta zu URTH' })).toBeInTheDocument()
     expect(letzteAbfrage()?.params).toEqual({ lookbackDays: 365, benchmark: 'URTH' })
+  })
+
+  it('akzeptiert eine frei eingetippte Benchmark ausserhalb der Vorschläge', async () => {
+    const { user } = await renderLoggedIn('/risiko')
+    await screen.findByRole('table', { name: 'Kennzahlen je Wertpapier' })
+
+    const feld = screen.getByRole('combobox', { name: 'Benchmark' })
+    await user.clear(feld)
+    await user.type(feld, 'qqq')
+
+    expect(await screen.findByRole('heading', { name: 'Beta zu QQQ' })).toBeInTheDocument()
+    expect(letzteAbfrage()?.params).toEqual({ lookbackDays: 365, benchmark: 'QQQ' })
   })
 
   it('stellt Portfolio, Benchmark und Wertpapiere als Punkte gegenüber', async () => {

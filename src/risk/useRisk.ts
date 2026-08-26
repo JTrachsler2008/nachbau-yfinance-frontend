@@ -1,5 +1,5 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
-import { fetchRiskAnalysis, type RiskAnalysis } from './riskApi'
+import { fetchRiskAnalysis, type RiskAnalysis, type Zeitraum } from './riskApi'
 
 /**
  * Zeitraum und Benchmark gehören mit in den Schlüssel: dasselbe Portfolio hat über ein Jahr andere
@@ -7,8 +7,14 @@ import { fetchRiskAnalysis, type RiskAnalysis } from './riskApi'
  * zeigte die Seite nach dem Umschalten die alten Zahlen unter neuer Beschriftung.
  */
 export const riskKeys = {
-  analysis: (portfolioId: number, lookbackDays: number, benchmark: string) =>
-    ['portfolios', portfolioId, 'risk', lookbackDays, benchmark] as const,
+  analysis: (portfolioId: number, zeitraum: Zeitraum, benchmark: string) =>
+    [
+      'portfolios',
+      portfolioId,
+      'risk',
+      zeitraum.kind === 'preset' ? zeitraum.lookbackDays : `${zeitraum.from}..${zeitraum.to}`,
+      benchmark,
+    ] as const,
 }
 
 /**
@@ -21,13 +27,15 @@ export const riskKeys = {
  */
 export function useRiskAnalysis(
   portfolioId: number,
-  lookbackDays: number,
+  zeitraum: Zeitraum,
   benchmark: string,
+  enabled = true,
 ): UseQueryResult<RiskAnalysis> {
   return useQuery({
-    queryKey: riskKeys.analysis(portfolioId, lookbackDays, benchmark),
-    queryFn: () => fetchRiskAnalysis(portfolioId, lookbackDays, benchmark),
+    queryKey: riskKeys.analysis(portfolioId, zeitraum, benchmark),
+    queryFn: () => fetchRiskAnalysis(portfolioId, zeitraum, benchmark),
     staleTime: 5 * 60_000,
     retry: false,
+    enabled,
   })
 }

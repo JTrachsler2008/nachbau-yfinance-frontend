@@ -1,9 +1,9 @@
 import Alert from '@mui/material/Alert'
 import AlertTitle from '@mui/material/AlertTitle'
+import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
-import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import ToggleButton from '@mui/material/ToggleButton'
@@ -16,6 +16,7 @@ import { KpiCard } from '../components/KpiCard'
 import { toneFor } from '../components/kpiTone'
 import { PageHeader } from '../components/PageHeader'
 import { ResponsiveTable, type Column } from '../components/ResponsiveTable'
+import { gestern, vorJahren } from '../format/dates'
 import { formatAmount, formatDate, formatPercent } from '../format/numbers'
 import { PortfolioGate } from '../portfolios/PortfolioGate'
 import type { Portfolio } from '../portfolios/portfolioApi'
@@ -25,9 +26,8 @@ import { useRiskAnalysis } from '../risk/useRisk'
 
 /**
  * Zeiträume als Presets in Kalendertagen, weil der Endpunkt `lookbackDays` so versteht (30 bis 3650).
- * Der UI/UX-Plan nennt 3 Monate bis 5 Jahre; ein freies Datumsintervall bietet der Endpunkt nicht, und
- * ein Feld, das die Eingabe anschliessend auf einen Zeitraum bis gestern zurechtbiegt, wäre eine
- * vorgetäuschte Freiheit.
+ * Dazu ein frei wählbares Intervall (`custom`, siehe unten): der Endpunkt nimmt seit Kurzem auch
+ * `from`/`to` direkt an, für alles zwischen "letzte Woche" und "seit 2016".
  */
 const zeitraeume = [
   { tage: 90, label: '3 Monate' },
@@ -36,16 +36,19 @@ const zeitraeume = [
   { tage: 1825, label: '5 Jahre' },
 ] as const
 
+/** Sentinel-Wert der Zeitraum-Auswahl für "eigenes Intervall", damit ein einziges Bedienelement reicht. */
+const BENUTZERDEFINIERT = 'custom'
+
 /**
- * Auswahl der Benchmark. Dieselben Ticker wie beim Anlageklassen-Vergleich (YOUNGOITV-454), damit ein
- * Beta gegen "MSCI World" hier und eine Linie dort auf derselben Kursreihe beruhen. Beschriftet mit
- * Name und Ticker, weil das Original Namen anzeigte und Symbole sendete, die es nicht gab.
+ * Vorgeschlagene Benchmarks. Das Feld selbst ist eine freie Texteingabe (`Autocomplete freeSolo`):
+ * jedes Symbol, das der Marktdatenanbieter kennt, ist als Referenz gültig, nicht nur diese drei.
  */
-const benchmarks = [
-  { symbol: 'SPY', label: 'S&P 500 (SPY)' },
-  { symbol: 'URTH', label: 'MSCI World (URTH)' },
-  { symbol: 'EWL', label: 'SMI Schweiz (EWL)' },
-] as const
+const benchmarkVorschlaege = ['SPY', 'URTH', 'EWL'] as const
+
+/** Tage zwischen zwei ISO-Daten, für die Dauer des maximalen Rückgangs. */
+function tageZwischen(von: string, bis: string): number {
+  return Math.round((new Date(bis).getTime() - new Date(von).getTime()) / 86_400_000)
+}
 
 /**
  * Risiko-Seite des aktiven Portfolios (YOUNGOITV-453).
@@ -63,12 +66,24 @@ export function RisikoPage() {
 }
 
 function Risiko({ portfolio }: { portfolio: Portfolio }) {
-  const [lookbackDays, setLookbackDays] = useState<number>(365)
-  const [benchmark, setBenchmark] = useState<string>(benchmarks[0].symbol)
-  const analyse = useRiskAnalysis(portfolio.id, lookbackDays, benchmark)
+  const [auswahl, setAuswahl] = useState<number | typeof BENUTZERDEFINIERT>(365)
+  const [customFrom, setCustomFrom] = useState(vorJahren(1))
+  const [customTo, setCustomTo] = useState(gestern())
+  const [benchmark, setBenchmark] = useState<string>(benchmarkVorschlaege[0])
+
+  const istBenutzerdefiniert = auswahl === BENUTZERDEFINIERT
+  const customGueltig = customFrom !== '' && customTo !== '' && customFrom < customTo
+  const zeitraum =
+    istBenutzerdefiniert
+      ? ({ kind: 'custom', from: customFrom, to: customTo } as const)
+      : ({ kind: 'preset', lookbackDays: auswahl } as const)
+
+  const analyse = useRiskAnalysis(portfolio.id, zeitraum, benchmark, !istBenutzerdefiniert || customGueltig)
   const daten = analyse.data
 
-  const zeitraum = zeitraeume.find((eintrag) => eintrag.tage === lookbackDays)?.label ?? ''
+  const zeitraumLabel = istBenutzerdefiniert
+    ? `${formatDate(customFrom)}–${formatDate(customTo)}`
+    : zeitraeume.find((eintrag) => eintrag.tage === auswahl)?.label ?? ''
   // Das Symbol aus der Antwort und nicht aus dem Zustand: so steht in der Beschriftung die Benchmark,
   // gegen die tatsächlich gerechnet wurde.
   const referenz = daten?.benchmarkSymbol ?? benchmark
@@ -103,42 +118,70 @@ function Risiko({ portfolio }: { portfolio: Portfolio }) {
       <Stack spacing={3}>
         <Card>
           <CardContent>
-            <Stack
-              direction={{ xs: 'column', sm: 'row' }}
-              spacing={2}
-              sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
-            >
-              <ToggleButtonGroup
-                size="small"
-                exclusive
-                value={lookbackDays}
-                onChange={(_event, wert: number | null) => {
-                  if (wert !== null) {
-                    setLookbackDays(wert)
-                  }
-                }}
-                aria-label="Zeitraum"
+            <Stack spacing={2}>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={2}
+                sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
               >
-                {zeitraeume.map((eintrag) => (
-                  <ToggleButton key={eintrag.tage} value={eintrag.tage}>
-                    {eintrag.label}
-                  </ToggleButton>
-                ))}
-              </ToggleButtonGroup>
-              <TextField
-                select
-                size="small"
-                label="Benchmark"
-                value={benchmark}
-                onChange={(event) => setBenchmark(event.target.value)}
-                sx={{ minWidth: 220 }}
-              >
-                {benchmarks.map((eintrag) => (
-                  <MenuItem key={eintrag.symbol} value={eintrag.symbol}>
-                    {eintrag.label}
-                  </MenuItem>
-                ))}
-              </TextField>
+                <ToggleButtonGroup
+                  size="small"
+                  exclusive
+                  value={auswahl}
+                  onChange={(_event, wert: number | typeof BENUTZERDEFINIERT | null) => {
+                    if (wert !== null) {
+                      setAuswahl(wert)
+                    }
+                  }}
+                  aria-label="Zeitraum"
+                >
+                  {zeitraeume.map((eintrag) => (
+                    <ToggleButton key={eintrag.tage} value={eintrag.tage}>
+                      {eintrag.label}
+                    </ToggleButton>
+                  ))}
+                  <ToggleButton value={BENUTZERDEFINIERT}>Benutzerdefiniert</ToggleButton>
+                </ToggleButtonGroup>
+                <Autocomplete
+                  freeSolo
+                  size="small"
+                  options={benchmarkVorschlaege}
+                  value={benchmark}
+                  onInputChange={(_event, next) => setBenchmark(next.trim().toUpperCase())}
+                  sx={{ minWidth: 220 }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Benchmark"
+                      helperText="SPY, URTH, EWL oder ein beliebiges anderes Symbol"
+                    />
+                  )}
+                />
+              </Stack>
+
+              {istBenutzerdefiniert && (
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                  <TextField
+                    label="Von"
+                    type="date"
+                    size="small"
+                    value={customFrom}
+                    onChange={(event) => setCustomFrom(event.target.value)}
+                    error={!customGueltig}
+                    slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: gestern() } }}
+                  />
+                  <TextField
+                    label="Bis"
+                    type="date"
+                    size="small"
+                    value={customTo}
+                    onChange={(event) => setCustomTo(event.target.value)}
+                    error={!customGueltig}
+                    helperText={customGueltig ? undefined : '"Von" muss vor "Bis" liegen, "Bis" höchstens gestern.'}
+                    slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: gestern() } }}
+                  />
+                </Stack>
+              )}
             </Stack>
           </CardContent>
         </Card>
@@ -161,7 +204,7 @@ function Risiko({ portfolio }: { portfolio: Portfolio }) {
               <KpiCard
                 label="Rendite p.a."
                 value={formatPercent(daten?.annualizedReturn, { withSign: true })}
-                hint={`Verkettete Tagesrenditen, hochgerechnet auf 252 Handelstage (${zeitraum})`}
+                hint={`Verkettete Tagesrenditen, hochgerechnet auf 252 Handelstage (${zeitraumLabel})`}
                 tone={toneFor(daten?.annualizedReturn)}
                 isPending={analyse.isPending}
               />
@@ -187,7 +230,11 @@ function Risiko({ portfolio }: { portfolio: Portfolio }) {
               <KpiCard
                 label="Maximaler Rückgang"
                 value={formatPercent(daten?.maxDrawdown)}
-                hint="Grösster Verlust gegenüber dem bis dahin höchsten Stand im Zeitraum"
+                hint={
+                  daten?.maxDrawdownPeakDate != null && daten?.maxDrawdownTroughDate != null
+                    ? `${formatDate(daten.maxDrawdownPeakDate)} bis ${formatDate(daten.maxDrawdownTroughDate)} (${tageZwischen(daten.maxDrawdownPeakDate, daten.maxDrawdownTroughDate)} Tage)`
+                    : 'Grösster Verlust gegenüber dem bis dahin höchsten Stand im Zeitraum'
+                }
                 tone={toneFor(daten?.maxDrawdown)}
                 isPending={analyse.isPending}
               />
@@ -220,7 +267,7 @@ function Risiko({ portfolio }: { portfolio: Portfolio }) {
                 ) : (
                   <Stack spacing={2}>
                     <RiskReturnScatter
-                      title={`Volatilität gegen Rendite über ${zeitraum}`}
+                      title={`Volatilität gegen Rendite über ${zeitraumLabel}`}
                       groups={gruppen}
                       empty="Für keinen Punkt liegen Rendite und Volatilität zusammen vor."
                     />

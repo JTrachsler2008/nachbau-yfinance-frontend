@@ -31,6 +31,14 @@ function zeile(tabelle: HTMLElement, name: string): HTMLElement {
   return within(tabelle).getByText(name).closest('tr') as HTMLElement
 }
 
+/**
+ * Die Karte über ihre Überschrift, weil beide Vergleiche eine gleich benannte Zeitraum-Gruppe haben
+ * ("3 Jahre" gibt es auf der Seite zweimal) und ohne Eingrenzung mehrdeutig wären.
+ */
+function karte(ueberschrift: string): HTMLElement {
+  return screen.getByRole('heading', { name: ueberschrift }).closest('.MuiCard-root') as HTMLElement
+}
+
 describe('Anlageklassen-Vergleich', () => {
   it('nennt Anlageklasse und tatsächlichen Ticker und zeigt Start, Ende und Veränderung', async () => {
     await renderLoggedIn('/szenario')
@@ -86,10 +94,30 @@ describe('Anlageklassen-Vergleich', () => {
     const { user } = await renderLoggedIn('/szenario')
     await screen.findByRole('table', { name: 'Anlageklassen' })
 
-    await user.click(screen.getByRole('button', { name: '3 Jahre' }))
+    await user.click(within(karte('Anlageklassen im Vergleich')).getByRole('button', { name: '3 Jahre' }))
 
     await screen.findByRole('heading', { name: 'Normalisierter Verlauf über 3 Jahre' })
     expect(anfragen('/compare/asset-classes').at(-1)?.params).toEqual({ period: 3 })
+  })
+
+  it('rechnet mit einem frei gewählten Zeitraum statt einem Preset', async () => {
+    const { user } = await renderLoggedIn('/szenario')
+    await screen.findByRole('table', { name: 'Anlageklassen' })
+    const karteAnlageklassen = karte('Anlageklassen im Vergleich')
+
+    await user.click(within(karteAnlageklassen).getByRole('button', { name: 'Benutzerdefiniert' }))
+    const von = within(karteAnlageklassen).getByLabelText('Von')
+    const bis = within(karteAnlageklassen).getByLabelText('Bis')
+    await user.clear(von)
+    await user.type(von, '2025-01-01')
+    await user.clear(bis)
+    await user.type(bis, '2025-06-30')
+
+    await screen.findByRole('heading', { name: 'Normalisierter Verlauf über 01.01.2025–30.06.2025' })
+    expect(anfragen('/compare/asset-classes').at(-1)?.params).toEqual({
+      from: '2025-01-01',
+      to: '2025-06-30',
+    })
   })
 
   it('zeigt ohne Kurse einen Hinweis statt einer leeren Fläche', async () => {
@@ -152,6 +180,27 @@ describe('Portfolio-Vergleich', () => {
         name: 'Normalisierter Verlauf beider Zusammenstellungen: 60 / 40 von 100.00 auf 105.80, Nur Aktien von 100.00 auf 112.25',
       }),
     ).toBeInTheDocument()
+  })
+
+  it('rechnet mit einem frei gewählten Zeitraum statt einem Preset', async () => {
+    const { user } = await renderLoggedIn('/szenario')
+    await screen.findByRole('table', { name: 'Anlageklassen' })
+    const kartePortfolios = karte('Zwei eigene Portfolios vergleichen')
+
+    await user.click(within(kartePortfolios).getByRole('button', { name: 'Benutzerdefiniert' }))
+    const von = within(kartePortfolios).getByLabelText('Von')
+    const bis = within(kartePortfolios).getByLabelText('Bis')
+    await user.clear(von)
+    await user.type(von, '2025-01-01')
+    await user.clear(bis)
+    await user.type(bis, '2025-06-30')
+    await user.click(within(kartePortfolios).getByRole('button', { name: 'Vergleichen' }))
+    await screen.findByRole('table', { name: 'Portfolios im Vergleich' })
+
+    expect(anfragen('/compare/portfolios').at(-1)?.body).toMatchObject({
+      from: '2025-01-01',
+      to: '2025-06-30',
+    })
   })
 
   it('meldet eine unvollständige Zeile am Feld, bevor eine Anfrage entsteht', async () => {
