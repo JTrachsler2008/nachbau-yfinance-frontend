@@ -87,12 +87,17 @@ describe('Performance-Seite', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Performance' })).toBeInTheDocument()
     expect(within(karte('Realisierte Gewinne')).getByText('CHF -128.40')).toBeInTheDocument()
     expect(within(karte('Dividenden')).getByText('CHF 214.50')).toBeInTheDocument()
+    // Aus defaultValuations()/defaultReturns(): 3260 Marktwert, 276.60 Gewinn, 8.25 % MWR.
+    expect(within(karte('Marktwert')).getByText("CHF 3'260.00")).toBeInTheDocument()
+    expect(within(karte('Gewinn/Verlust (unrealisiert)')).getByText('CHF 276.60')).toBeInTheDocument()
+    expect(within(karte('Geldgewichtete Rendite (MWR)')).getByText('+8.25 %')).toBeInTheDocument()
   })
 
-  it('benennt die fehlenden Renditekennzahlen statt sie zu schätzen', async () => {
+  it('benennt die weiterhin fehlende zeitgewichtete Rendite statt sie zu schätzen', async () => {
     await renderLoggedIn('/performance')
 
-    expect(await screen.findByText('Ohne TWR, MWR und Wertverlauf')).toBeInTheDocument()
+    expect(await screen.findByText('Ohne TWR, Total Return und Wertverlauf')).toBeInTheDocument()
+    expect(within(karte('Zeitgewichtete Rendite (TWR)')).getByText('–')).toBeInTheDocument()
   })
 
   it('fasst die Zahlungen je Jahr zusammen und stellt sie als Diagramm und Tabelle dar', async () => {

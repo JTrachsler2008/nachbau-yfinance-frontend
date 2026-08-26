@@ -3,8 +3,11 @@ import { apiClient } from '../api/client'
 /**
  * Antwort von `GET /portfolios/{id}/positions` (`PortfolioPositionResponseDto`).
  *
- * Ohne aktuellen Kurs, Marktwert und Gewinn: die hängen an Live-Kursabrufen, die laut
- * Architektur-Plan ausfallen können. Der Bestand selbst kommt aus der Datenbank und ist immer da.
+ * Bestandsdaten (`totalQuantity`, `averagePurchasePrice`) kommen aus der Datenbank und sind immer da.
+ * `currentPrice`/`marketValue`/`unrealizedGainLoss` hängen an einem Live-Kursabruf, der laut
+ * Architektur-Plan ausfallen kann - dann sind genau diese drei Felder `null`, der Rest der Position
+ * bleibt trotzdem sichtbar. Beide Werte in der Handelswährung des Wertpapiers, nicht in der
+ * Basiswährung des Portfolios.
  */
 export interface Position {
   id: number
@@ -18,6 +21,9 @@ export interface Position {
   countryCode: string | null
   totalQuantity: number
   averagePurchasePrice: number
+  currentPrice: number | null
+  marketValue: number | null
+  unrealizedGainLoss: number | null
 }
 
 export async function fetchPositions(portfolioId: number): Promise<Position[]> {

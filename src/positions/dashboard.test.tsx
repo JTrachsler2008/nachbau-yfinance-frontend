@@ -54,6 +54,17 @@ describe('Dashboard', () => {
     expect(within(karte('Dividenden')).getByText('CHF 214.50')).toBeInTheDocument()
   })
 
+  it('zeigt Marktwert und Gewinn je Position, live aus dem Kurs', async () => {
+    await renderLoggedIn('/')
+    await dashboardGeladen()
+
+    const tabelle = screen.getByRole('table', { name: 'Positionen' })
+    const nesn = within(tabelle).getByText('NESN').closest('tr') as HTMLElement
+    // 15 * 100 Kurs, Gewinn 1500 - 1395 (Einstand).
+    expect(within(nesn).getByText("CHF 1'500.00")).toBeInTheDocument()
+    expect(within(nesn).getByText('CHF 105.00')).toBeInTheDocument()
+  })
+
   it('fragt die Auswertungen in der Basiswährung des Portfolios ab', async () => {
     await renderLoggedIn('/')
     await dashboardGeladen()
@@ -66,12 +77,33 @@ describe('Dashboard', () => {
     }
   })
 
-  it('benennt die fehlenden marktabhängigen Kennzahlen statt sie zu schätzen', async () => {
+  it('zeigt Marktwert, Gewinn/Verlust und die geldgewichtete Rendite, live aus dem Backend', async () => {
+    await renderLoggedIn('/')
+    await dashboardGeladen()
+
+    // Aus defaultValuations()/defaultReturns(): 3260 Marktwert, 276.60 Gewinn, 8.25 % MWR.
+    expect(within(karte('Marktwert')).getByText("CHF 3'260.00")).toBeInTheDocument()
+    expect(within(karte('Gewinn/Verlust (unrealisiert)')).getByText('CHF 276.60')).toBeInTheDocument()
+    expect(within(karte('Geldgewichtete Rendite (MWR)')).getByText('+8.25 %')).toBeInTheDocument()
+  })
+
+  it('benennt die weiterhin fehlende zeitgewichtete Rendite statt sie zu schätzen', async () => {
     await renderLoggedIn('/')
 
-    expect(
-      await screen.findByText('Marktwert, Gewinn/Verlust und TWR/MWR fehlen'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('Zeitgewichtete Rendite (TWR) fehlt noch')).toBeInTheDocument()
+  })
+
+  it('warnt, wenn Positionen ohne Live-Kurs aus dem Marktwert fehlen', async () => {
+    backend.valuations.set(10, {
+      marketValue: 1500,
+      costBasis: 1395,
+      unrealizedGainLoss: 105,
+      excludedSymbols: ['AAPL'],
+    })
+    await renderLoggedIn('/')
+
+    expect(await screen.findByText('Nicht im Marktwert enthalten')).toBeInTheDocument()
+    expect(screen.getByText(/Für AAPL liefert der Marktdatenanbieter/)).toBeInTheDocument()
   })
 
   it('teilt nach Sektor und Land auf und filtert die Positionen über die Legende', async () => {

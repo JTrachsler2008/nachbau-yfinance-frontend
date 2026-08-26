@@ -19,8 +19,8 @@ import { toneFor } from '../components/kpiTone'
 import { PageHeader } from '../components/PageHeader'
 import { ResponsiveTable, type Column } from '../components/ResponsiveTable'
 import { landName } from '../format/countries'
-import { formatMoney, formatQuantity, missingValue } from '../format/numbers'
-import { useDividends, useRealizedGains } from '../performance/usePerformance'
+import { formatMoney, formatPercent, formatQuantity, missingValue } from '../format/numbers'
+import { useDividends, useRealizedGains, useReturns, useValuation } from '../performance/usePerformance'
 import type { Position } from '../positions/positionApi'
 import { usePositions } from '../positions/usePositions'
 import { PortfolioGate } from '../portfolios/PortfolioGate'
@@ -29,16 +29,12 @@ import type { Portfolio } from '../portfolios/portfolioApi'
 /**
  * Übersicht über das aktive Portfolio (YOUNGOITV-451).
  *
- * Der UI/UX-Plan sieht hier Gesamtwert, Gewinn/Verlust und TWR/MWR vor. Keine dieser Zahlen ist
- * verfügbar: das Backend liefert zu Beständen bewusst keine Kursdaten
- * (`PortfolioPositionResponseDto` ohne aktuellen Kurs und Marktwert), und für TWR/MWR gibt es keinen
- * Endpunkt, weil die dafür nötige historische Neubewertung laut `PerformanceController` Folgearbeit
- * ist. Der Plan hält für genau diesen Fall den degradierten Zustand fest: Bestandsdaten bleiben
- * sichtbar, marktabhängige Kennzahlen werden als nicht verfügbar gekennzeichnet statt geschätzt.
- *
- * Aggregiert wird deshalb der Einstandswert, und zwar je Handelswährung getrennt. Eine Summe über
- * mehrere Währungen wäre erfunden: für Bestände gibt es keinen Endpunkt mit Anzeigewährung, und die
- * Umrechnung im Browser nachzubauen hiesse, die FX-Logik des Backends zu duplizieren.
+ * Marktwert und Gewinn/Verlust kommen über `GET /portfolios/{id}/valuation`, in der Basiswährung -
+ * anders als der weiterhin nur je Handelswährung summierte Einstandswert darunter, weil eine Summe
+ * über Währungen hinweg einen Kurs und eine Umrechnung braucht, die das Backend jetzt liefert. Für
+ * zeitgewichtete Rendite (TWR) gibt es weiterhin keinen Wert: die dafür nötige Zerlegung der
+ * Historie in Teilperioden mit je eigener historischer Neubewertung ist noch nicht umgesetzt (siehe
+ * `PortfolioReturnsResponseDto`). Ein geschätzter Wert wäre schlimmer als keiner.
  */
 export function DashboardPage() {
   return <PortfolioGate>{(portfolio) => <Uebersicht portfolio={portfolio} />}</PortfolioGate>
@@ -54,6 +50,8 @@ function Uebersicht({ portfolio }: { portfolio: Portfolio }) {
   const accounts = useAccounts(portfolio.id)
   const realizedGains = useRealizedGains(portfolio.id, portfolio.baseCurrency)
   const dividends = useDividends(portfolio.id, portfolio.baseCurrency)
+  const valuation = useValuation(portfolio.id)
+  const returns = useReturns(portfolio.id)
 
   const [gewaehlteWaehrung, setGewaehlteWaehrung] = useState<string | null>(null)
   const [sektor, setSektor] = useState<string | null>(null)
@@ -119,6 +117,41 @@ function Uebersicht({ portfolio }: { portfolio: Portfolio }) {
           sx={{
             display: 'grid',
             gap: 2,
+            gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(3, 1fr)' },
+          }}
+        >
+          <KpiCard
+            label="Marktwert"
+            value={formatMoney(valuation.data?.marketValue, portfolio.baseCurrency)}
+            hint={`Live bewertet, in ${portfolio.baseCurrency}`}
+            isPending={valuation.isPending}
+            error={valuation.isError ? valuation.error : undefined}
+            onRetry={() => void valuation.refetch()}
+          />
+          <KpiCard
+            label="Gewinn/Verlust (unrealisiert)"
+            value={formatMoney(valuation.data?.unrealizedGainLoss, portfolio.baseCurrency)}
+            hint="Marktwert minus Einstand, live"
+            tone={toneFor(valuation.data?.unrealizedGainLoss)}
+            isPending={valuation.isPending}
+            error={valuation.isError ? valuation.error : undefined}
+            onRetry={() => void valuation.refetch()}
+          />
+          <KpiCard
+            label="Geldgewichtete Rendite (MWR)"
+            value={formatPercent(returns.data?.moneyWeightedReturn, { withSign: true })}
+            hint="Interner Zinsfuss über alle Ein- und Auszahlungen bis heute"
+            tone={toneFor(returns.data?.moneyWeightedReturn)}
+            isPending={returns.isPending}
+            error={returns.isError ? returns.error : undefined}
+            onRetry={() => void returns.refetch()}
+          />
+        </Box>
+
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 2,
             gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(4, 1fr)' },
           }}
         >
@@ -157,11 +190,21 @@ function Uebersicht({ portfolio }: { portfolio: Portfolio }) {
           />
         </Box>
 
+        {valuation.data !== undefined && valuation.data.excludedSymbols.length > 0 && (
+          <Alert severity="warning">
+            <AlertTitle>Nicht im Marktwert enthalten</AlertTitle>
+            Für {valuation.data.excludedSymbols.join(', ')} liefert der Marktdatenanbieter aktuell
+            keinen Kurs. Marktwert, Gewinn/Verlust und die geldgewichtete Rendite oben zählen nur die
+            übrigen Positionen.
+          </Alert>
+        )}
+
         <Alert severity="info">
-          <AlertTitle>Marktwert, Gewinn/Verlust und TWR/MWR fehlen</AlertTitle>
-          Das Backend liefert zu Beständen keine Kursdaten und hat für zeitgewichtete Renditen noch
-          keinen Endpunkt. Die Karten zeigen deshalb den Einstandswert und nicht den heutigen Wert.
-          Alles hier stammt aus der Datenbank und ist unabhängig von externen Kursabrufen.
+          <AlertTitle>Zeitgewichtete Rendite (TWR) fehlt noch</AlertTitle>
+          Dafür müsste die Historie in Teilperioden an jedem Kauf-/Verkaufsdatum zerlegt und jede
+          Periode einzeln mit den damals gültigen Kursen neu bewertet werden. Diese Zusammenstellung
+          ist noch nicht umgesetzt; ein grob geschätzter Wert stünde hier bewusst nicht, weil er sich
+          von einem korrekt berechneten nicht unterscheiden liesse.
         </Alert>
 
         <Card>
@@ -328,6 +371,19 @@ function Positionen({ rows }: { rows: readonly Position[] }) {
       label: 'Einstandswert',
       align: 'right',
       render: (row) => formatMoney(einstand(row), row.tradingCurrency),
+      hideOnMobile: true,
+    },
+    {
+      key: 'marketValue',
+      label: 'Marktwert',
+      align: 'right',
+      render: (row) => formatMoney(row.marketValue, row.tradingCurrency),
+    },
+    {
+      key: 'gain',
+      label: 'Gewinn/Verlust',
+      align: 'right',
+      render: (row) => formatMoney(row.unrealizedGainLoss, row.tradingCurrency),
     },
   ]
 
