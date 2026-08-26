@@ -249,6 +249,8 @@ export interface FakeRiskAnalysis {
   sharpeRatio: number | null
   beta: number | null
   maxDrawdown: number | null
+  maxDrawdownPeakDate: string | null
+  maxDrawdownTroughDate: string | null
   valueAtRisk95: number | null
   diversificationBenefit: number | null
   securities: FakeSecurityRisk[]
@@ -604,6 +606,8 @@ function leereRisikoanalyse(): FakeRiskAnalysis {
     sharpeRatio: null,
     beta: null,
     maxDrawdown: null,
+    maxDrawdownPeakDate: null,
+    maxDrawdownTroughDate: null,
     valueAtRisk95: null,
     diversificationBenefit: null,
     securities: [],
@@ -638,6 +642,8 @@ function defaultRisk(): Map<number, FakeRiskAnalysis> {
         sharpeRatio: 0.46,
         beta: 0.99,
         maxDrawdown: -17.9,
+        maxDrawdownPeakDate: '2026-03-12',
+        maxDrawdownTroughDate: '2026-04-09',
         valueAtRisk95: -1.95,
         diversificationBenefit: 1.78,
         securities: [
@@ -1710,9 +1716,25 @@ export function installFakeBackend(): FakeBackend {
         return fail(404, 'Not Found', `Portfolio ${portfolioId} not found`, config)
       }
       const abfrage = readParams(config)
-      const lookbackDays = Number(abfrage.lookbackDays ?? 365)
-      if (!Number.isInteger(lookbackDays) || lookbackDays < 30 || lookbackDays > 3650) {
-        return fail(400, 'Bad Request', 'lookbackDays must be between 30 and 3650', config)
+      // Ein freies Intervall hat Vorrang vor lookbackDays, genau wie im Controller.
+      const freiesVon = abfrage.from === undefined ? null : String(abfrage.from)
+      const freiesBis = abfrage.to === undefined ? null : String(abfrage.to)
+      let von: string
+      let bis: string
+      if (freiesVon !== null || freiesBis !== null) {
+        if (freiesVon === null || freiesBis === null) {
+          return fail(400, 'Bad Request', 'from and to must both be given for a custom range', config)
+        }
+        von = freiesVon
+        bis = freiesBis
+      } else {
+        const lookbackDays = Number(abfrage.lookbackDays ?? 365)
+        if (!Number.isInteger(lookbackDays) || lookbackDays < 30 || lookbackDays > 3650) {
+          return fail(400, 'Bad Request', 'lookbackDays must be between 30 and 3650', config)
+        }
+        // Wie im Dienst: gerechnet wird bis gestern, und von dort `lookbackDays` Kalendertage zurück.
+        von = vorTagen(lookbackDays + 1)
+        bis = gestern()
       }
       const benchmark = String(abfrage.benchmark ?? 'SPY').trim().toUpperCase()
       if (benchmark === '') {
@@ -1724,11 +1746,10 @@ export function installFakeBackend(): FakeBackend {
             portfolioId,
             portfolioName: portfolio.name,
             currency: portfolio.baseCurrency,
-            // Wie im Dienst: gerechnet wird bis gestern, und von dort `lookbackDays` Kalendertage
-            // zurück. Der Zeitraum kommt aus der Antwort in die Oberfläche, deshalb muss er hier
-            // dieselbe Rechnung durchlaufen und nicht einfach ein festes Datumspaar sein.
-            from: vorTagen(lookbackDays + 1),
-            to: gestern(),
+            // Der Zeitraum kommt aus der Antwort in die Oberfläche, deshalb muss er hier dieselbe
+            // Auflösung durchlaufen wie im Dienst und nicht einfach ein festes Datumspaar sein.
+            from: von,
+            to: bis,
             // Grossgeschrieben zurück, wie der Controller es normalisiert: ein Beta gegen "spy" und
             // eines gegen "SPY" sind dasselbe, und die Oberfläche beschriftet damit ihre Achse.
             benchmarkSymbol: benchmark,
@@ -1741,9 +1762,18 @@ export function installFakeBackend(): FakeBackend {
     }
 
     if (method === 'GET' && url === '/compare/asset-classes') {
-      const period = Number(readParams(config).period ?? 10)
-      if (!Number.isInteger(period) || period < 1 || period > 100) {
-        return fail(400, 'Bad Request', 'period must be between 1 and 100 years', config)
+      const abfrage = readParams(config)
+      const von = abfrage.from === undefined ? null : String(abfrage.from)
+      const bis = abfrage.to === undefined ? null : String(abfrage.to)
+      if (von !== null || bis !== null) {
+        if (von === null || bis === null) {
+          return fail(400, 'Bad Request', 'from and to must both be given for a custom range', config)
+        }
+      } else {
+        const period = Number(abfrage.period ?? 10)
+        if (!Number.isInteger(period) || period < 1 || period > 100) {
+          return fail(400, 'Bad Request', 'period must be between 1 and 100 years', config)
+        }
       }
       return Promise.resolve(ok(simulations.assetClassComparison, 200, config))
     }
@@ -1752,8 +1782,10 @@ export function installFakeBackend(): FakeBackend {
       const anfrage = readBody(config)
       const nameA = leseVergleichsseite(anfrage.portfolioA)
       const nameB = leseVergleichsseite(anfrage.portfolioB)
+      const hatFreiesIntervall = anfrage.from !== undefined && anfrage.to !== undefined
       const periodYears = Number(anfrage.periodYears)
-      if (nameA === null || nameB === null || !(periodYears > 0 && periodYears <= 100)) {
+      const zeitraumGueltig = hatFreiesIntervall || (periodYears > 0 && periodYears <= 100)
+      if (nameA === null || nameB === null || !zeitraumGueltig) {
         // Sammelmeldung wie bei `@Valid`. Der Wortlaut je Feld bleibt offen, weil die Oberfläche
         // vorher prüft und dieser Zweig nur die Grenzen des Endpunkts festhält.
         return fail(

@@ -2,14 +2,16 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
-import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
 import { useState, type FormEvent } from 'react'
 import { SeriesLineChart } from '../charts/SeriesLineChart'
 import { verlaufJeSerie, type LinePoint, type Serie } from '../charts/verlauf'
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/DataState'
+import { gestern, vorJahren } from '../format/dates'
 import { formatAmount, formatMonth } from '../format/numbers'
 import { SimulationBadge } from './SimulationBadge'
 import { VerlaufTabelle } from './VerlaufTabelle'
@@ -21,6 +23,9 @@ import { usePortfolioComparison } from './useCompare'
 
 /** Auswählbare Zeiträume. Der Endpunkt lässt 1 bis 100 Jahre zu. */
 const zeitraeume = [1, 3, 5, 10] as const
+
+/** Sentinel-Wert der Zeitraum-Auswahl für "eigenes Intervall", damit ein einziges Bedienelement reicht. */
+const BENUTZERDEFINIERT = 'custom'
 
 /**
  * Vergleich zweier frei zusammengestellter Portfolios (YOUNGOITV-454).
@@ -39,7 +44,12 @@ export function PortfolioVergleich() {
   const [zeilenB, setZeilenB] = useState<GewichtungsZeile[]>([
     { id: 1, symbol: 'SPY', gewicht: '100' },
   ])
-  const [periodYears, setPeriodYears] = useState<number>(10)
+  const [auswahl, setAuswahl] = useState<number | typeof BENUTZERDEFINIERT>(10)
+  const [customFrom, setCustomFrom] = useState(vorJahren(1))
+  const [customTo, setCustomTo] = useState(gestern())
+
+  const istBenutzerdefiniert = auswahl === BENUTZERDEFINIERT
+  const customGueltig = customFrom !== '' && customTo !== '' && customFrom < customTo
 
   const [fehlerA, setFehlerA] = useState<string | null>(null)
   const [fehlerB, setFehlerB] = useState<string | null>(null)
@@ -74,11 +84,16 @@ export function PortfolioVergleich() {
       setFehlerB(b.ok ? null : b.fehler)
       return
     }
+    if (istBenutzerdefiniert && !customGueltig) {
+      return
+    }
 
     setInput({
       portfolioA: { name: nameA.trim(), positions: a.positionen },
       portfolioB: { name: nameB.trim(), positions: b.positionen },
-      periodYears,
+      zeitraum: istBenutzerdefiniert
+        ? { kind: 'custom', from: customFrom, to: customTo }
+        : { kind: 'preset', periodYears: auswahl },
     })
   }
 
@@ -150,24 +165,60 @@ export function PortfolioVergleich() {
               </Stack>
             </Box>
 
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: 'center' }}>
-              <TextField
-                select
-                label="Zeitraum"
-                size="small"
-                value={periodYears}
-                onChange={(event) => setPeriodYears(Number(event.target.value))}
-                sx={{ minWidth: 160 }}
+            <Stack spacing={2}>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={2}
+                sx={{ alignItems: { sm: 'center' } }}
               >
-                {zeitraeume.map((jahre) => (
-                  <MenuItem key={jahre} value={jahre}>
-                    {jahre} {jahre === 1 ? 'Jahr' : 'Jahre'}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <Button type="submit" variant="contained" loading={vergleich.isFetching}>
-                Vergleichen
-              </Button>
+                <ToggleButtonGroup
+                  size="small"
+                  exclusive
+                  value={auswahl}
+                  onChange={(_event, wert: number | typeof BENUTZERDEFINIERT | null) => {
+                    if (wert !== null) {
+                      setAuswahl(wert)
+                    }
+                  }}
+                  aria-label="Zeitraum"
+                >
+                  {zeitraeume.map((jahre) => (
+                    <ToggleButton key={jahre} value={jahre}>
+                      {jahre} {jahre === 1 ? 'Jahr' : 'Jahre'}
+                    </ToggleButton>
+                  ))}
+                  <ToggleButton value={BENUTZERDEFINIERT}>Benutzerdefiniert</ToggleButton>
+                </ToggleButtonGroup>
+                <Button type="submit" variant="contained" loading={vergleich.isFetching}>
+                  Vergleichen
+                </Button>
+              </Stack>
+
+              {istBenutzerdefiniert && (
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                  <TextField
+                    label="Von"
+                    type="date"
+                    size="small"
+                    value={customFrom}
+                    onChange={(event) => setCustomFrom(event.target.value)}
+                    error={!customGueltig}
+                    slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: gestern() } }}
+                  />
+                  <TextField
+                    label="Bis"
+                    type="date"
+                    size="small"
+                    value={customTo}
+                    onChange={(event) => setCustomTo(event.target.value)}
+                    error={!customGueltig}
+                    helperText={
+                      customGueltig ? undefined : '"Von" muss vor "Bis" liegen, "Bis" höchstens gestern.'
+                    }
+                    slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: gestern() } }}
+                  />
+                </Stack>
+              )}
             </Stack>
           </Stack>
         </Box>
