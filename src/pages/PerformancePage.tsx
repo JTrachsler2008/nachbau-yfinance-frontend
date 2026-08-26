@@ -14,9 +14,9 @@ import { KpiCard } from '../components/KpiCard'
 import { toneFor } from '../components/kpiTone'
 import { PageHeader } from '../components/PageHeader'
 import { ResponsiveTable, type Column } from '../components/ResponsiveTable'
-import { formatMoney, formatQuantity } from '../format/numbers'
+import { formatMoney, formatPercent, formatQuantity, missingValue } from '../format/numbers'
 import { dividendenJeJahr, dividendenWaehrungen, type DividendenJahr } from '../performance/dividenden'
-import { useDividends, useRealizedGains } from '../performance/usePerformance'
+import { useDividends, useRealizedGains, useReturns, useValuation } from '../performance/usePerformance'
 import { PortfolioGate } from '../portfolios/PortfolioGate'
 import type { Portfolio } from '../portfolios/portfolioApi'
 import { useTransactions } from '../transactions/useTransactions'
@@ -24,12 +24,16 @@ import { useTransactions } from '../transactions/useTransactions'
 /**
  * Auswertung des aktiven Portfolios (YOUNGOITV-452).
  *
- * Von den im UI/UX-Plan aufgeführten Bausteinen sind zwei durch Endpunkte gedeckt: realisierte
- * Gewinne und Dividendenerträge, beide vom Backend in die Basiswährung des Portfolios umgerechnet.
- * TWR, MWR, Total Return, der historische Wertverlauf und das Benchmark-Overlay haben keinen
- * Endpunkt; laut `PerformanceController` ist die dafür nötige historische Neubewertung bewusst
- * Folgearbeit. Diese Karten fehlen deshalb, statt aus Bestandsdaten geschätzt zu werden, und die
- * Seite sagt offen, warum.
+ * Realisierte Gewinne und Dividendenerträge kommen wie zuvor vom Backend, in die Basiswährung des
+ * Portfolios umgerechnet. Dazu jetzt Marktwert und die geldgewichtete Rendite (MWR): beide brauchen
+ * nur einen Livekurs je Position und die tatsächlichen Cashflows aus der Transaktionshistorie, keine
+ * historische Neubewertung.
+ *
+ * Die zeitgewichtete Rendite (TWR), Total Return, der historische Wertverlauf und das
+ * Benchmark-Overlay haben weiterhin keinen Endpunkt: sie bräuchten eine Zerlegung der Historie in
+ * Teilperioden, jede mit einer eigenen historischen Neubewertung aller zu diesem Zeitpunkt
+ * gehaltenen Positionen - eine eigenständige, noch nicht abgeschlossene Arbeit. Diese Karten fehlen
+ * deshalb weiterhin, statt aus Bestandsdaten geschätzt zu werden, und die Seite sagt offen, warum.
  *
  * Die Jahresübersicht der Dividenden entsteht aus der Transaktionshistorie, also aus Daten, die
  * ohnehin schon in der Oberfläche liegen. Das ist keine nachgebaute Fachlogik, sondern eine Summe
@@ -42,6 +46,8 @@ export function PerformancePage() {
 function Auswertung({ portfolio }: { portfolio: Portfolio }) {
   const realizedGains = useRealizedGains(portfolio.id, portfolio.baseCurrency)
   const dividends = useDividends(portfolio.id, portfolio.baseCurrency)
+  const valuation = useValuation(portfolio.id)
+  const returns = useReturns(portfolio.id)
   const transactions = useTransactions(portfolio.id)
 
   const [gewaehlteWaehrung, setGewaehlteWaehrung] = useState<string | null>(null)
@@ -79,9 +85,26 @@ function Auswertung({ portfolio }: { portfolio: Portfolio }) {
           sx={{
             display: 'grid',
             gap: 2,
-            gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+            gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(4, 1fr)' },
           }}
         >
+          <KpiCard
+            label="Marktwert"
+            value={formatMoney(valuation.data?.marketValue, portfolio.baseCurrency)}
+            hint={`Live bewertet, in ${portfolio.baseCurrency}`}
+            isPending={valuation.isPending}
+            error={valuation.isError ? valuation.error : undefined}
+            onRetry={() => void valuation.refetch()}
+          />
+          <KpiCard
+            label="Gewinn/Verlust (unrealisiert)"
+            value={formatMoney(valuation.data?.unrealizedGainLoss, portfolio.baseCurrency)}
+            hint="Marktwert minus Einstand, live"
+            tone={toneFor(valuation.data?.unrealizedGainLoss)}
+            isPending={valuation.isPending}
+            error={valuation.isError ? valuation.error : undefined}
+            onRetry={() => void valuation.refetch()}
+          />
           <KpiCard
             label="Realisierte Gewinne"
             value={formatMoney(realizedGains.data?.amount, realizedGains.data?.currency)}
@@ -101,13 +124,46 @@ function Auswertung({ portfolio }: { portfolio: Portfolio }) {
           />
         </Box>
 
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 2,
+            gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+          }}
+        >
+          <KpiCard
+            label="Geldgewichtete Rendite (MWR)"
+            value={formatPercent(returns.data?.moneyWeightedReturn, { withSign: true })}
+            hint="Interner Zinsfuss über alle Ein- und Auszahlungen bis heute"
+            tone={toneFor(returns.data?.moneyWeightedReturn)}
+            isPending={returns.isPending}
+            error={returns.isError ? returns.error : undefined}
+            onRetry={() => void returns.refetch()}
+          />
+          <KpiCard
+            label="Zeitgewichtete Rendite (TWR)"
+            value={missingValue}
+            hint="Noch nicht umgesetzt, siehe Hinweis unten"
+          />
+        </Box>
+
+        {valuation.data !== undefined && valuation.data.excludedSymbols.length > 0 && (
+          <Alert severity="warning">
+            <AlertTitle>Nicht im Marktwert enthalten</AlertTitle>
+            Für {valuation.data.excludedSymbols.join(', ')} liefert der Marktdatenanbieter aktuell
+            keinen Kurs. Marktwert, Gewinn/Verlust und die geldgewichtete Rendite oben zählen nur die
+            übrigen Positionen.
+          </Alert>
+        )}
+
         <Alert severity="info">
-          <AlertTitle>Ohne TWR, MWR und Wertverlauf</AlertTitle>
-          Für zeitgewichtete und geldgewichtete Rendite, Total Return, den historischen Wertverlauf
-          und das Benchmark-Overlay gibt es im Backend keinen Endpunkt. Die Berechnung selbst ist
-          dort vorhanden und getestet, sie braucht aber eine vollständige Neubewertung aller
-          Positionen über Live-Kurse, die als Folgearbeit vorgesehen ist. Geschätzte Werte stehen
-          hier bewusst nicht.
+          <AlertTitle>Ohne TWR, Total Return und Wertverlauf</AlertTitle>
+          Für die zeitgewichtete Rendite, Total Return, den historischen Wertverlauf und das
+          Benchmark-Overlay gibt es im Backend weiterhin keinen Endpunkt. Sie bräuchten eine
+          Zerlegung der Historie in Teilperioden an jedem Kauf-/Verkaufsdatum, jede mit einer eigenen
+          historischen Neubewertung aller zu diesem Zeitpunkt gehaltenen Positionen - eine
+          eigenständige, noch nicht abgeschlossene Arbeit. Geschätzte Werte stehen hier bewusst
+          nicht.
         </Alert>
 
         <Card>

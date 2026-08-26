@@ -255,6 +255,25 @@ export interface FakeRiskAnalysis {
   excluded: { symbol: string; reason: string }[]
 }
 
+/**
+ * `PortfolioValuationResponseDto` ohne `portfolioId`/`currency`, die der Endpunkt selbst füllt.
+ *
+ * Hinterlegt statt gerechnet, wie `analytics`: Marktwert und Einstand entstehen im Backend aus
+ * einem Livekurs je Position und einer Währungsumrechnung, die hier nicht dupliziert wird.
+ */
+export interface FakePortfolioValuation {
+  marketValue: number | null
+  costBasis: number | null
+  unrealizedGainLoss: number | null
+  excludedSymbols: string[]
+}
+
+/** `PortfolioReturnsResponseDto` ohne `portfolioId`/`currency`. */
+export interface FakePortfolioReturns {
+  timeWeightedReturn: number | null
+  moneyWeightedReturn: number | null
+}
+
 export interface FakeBackend {
   requests: readonly RequestLog[]
   users: readonly FakeUser[]
@@ -296,6 +315,16 @@ export interface FakeBackend {
    * das Backend ein Portfolio ohne verwertbare Positionen beantwortet.
    */
   risk: Map<number, FakeRiskAnalysis>
+  /**
+   * Marktwert/Einstand/Gewinn je Portfolionummer (`GET /portfolios/{id}/valuation`). Fehlt der
+   * Eintrag, kommt die leere Bewertung zurück (kein Bestand: 0 ist dort die zutreffende Antwort).
+   */
+  valuations: Map<number, FakePortfolioValuation>
+  /**
+   * Geld-/zeitgewichtete Rendite je Portfolionummer (`GET /portfolios/{id}/returns`). Fehlt der
+   * Eintrag, kommen beide Werte `null` zurück (ohne Cashflows ist kein Zinsfuss bestimmbar).
+   */
+  returns: Map<number, FakePortfolioReturns>
   /**
    * Legt einen weiteren Benutzer an und gibt ihn samt Nummer zurück.
    *
@@ -641,9 +670,36 @@ function defaultRisk(): Map<number, FakeRiskAnalysis> {
   ])
 }
 
+/** Antwort auf ein Portfolio ohne Bestand: 0 ist hier die zutreffende Antwort, nicht "unbekannt". */
+function leereValuation(): FakePortfolioValuation {
+  return { marketValue: 0, costBasis: 0, unrealizedGainLoss: 0, excludedSymbols: [] }
+}
+
+/**
+ * Marktwert für Portfolio 10, nachgerechnet aus den Vorgabe-Positionen (siehe `defaultPositions`,
+ * `defaultQuotes`) mit demselben FX-Kurs 0.88 wie in `defaultTransactions`:
+ * NESN 15 * 100 = 1500 CHF, AAPL 10 * 200 * 0.88 = 1760 CHF, zusammen 3260.
+ * Einstand: NESN 15 * 93 = 1395 CHF, AAPL 10 * 180.5 * 0.88 = 1588.40 CHF, zusammen 2983.40.
+ */
+function defaultValuations(): Map<number, FakePortfolioValuation> {
+  return new Map([
+    [10, { marketValue: 3260, costBasis: 2983.4, unrealizedGainLoss: 276.6, excludedSymbols: [] }],
+  ])
+}
+
+/** Ohne Cashflows kein Zinsfuss - Portfolio 11 hat keine Transaktionen und bekommt deshalb `null`. */
+function leereReturns(): FakePortfolioReturns {
+  return { timeWeightedReturn: null, moneyWeightedReturn: null }
+}
+
+function defaultReturns(): Map<number, FakePortfolioReturns> {
+  return new Map([[10, { timeWeightedReturn: null, moneyWeightedReturn: 8.25 }]])
+}
+
 /** Vier Symbole reichen: eines für die Kaufsimulation, drei für Vergleich und Sparplan. */
 function defaultQuotes(): Map<string, number> {
   return new Map([
+    ['NESN', 100],
     ['AAPL', 200],
     ['SPY', 540],
     ['AGG', 98],
@@ -858,14 +914,23 @@ function toTransactionResponse(
   }
 }
 
-/** `PortfolioPositionResponseDto`: ohne aktuellen Kurs, Marktwert und Gewinn. */
+/**
+ * `PortfolioPositionResponseDto`. `currentPrice`/`marketValue`/`unrealizedGainLoss` kommen aus
+ * `quotes`, in der Handelswährung des Wertpapiers - genau wie beim echten Backend `null`, wenn dort
+ * kein Kurs hinterlegt ist, statt einer stillschweigenden 0.
+ */
 function toPositionResponse(
   position: FakePosition,
   accounts: readonly FakeAccount[],
   securities: readonly FakeSecurity[],
+  quotes: ReadonlyMap<string, number>,
 ) {
   const account = accounts.find((candidate) => candidate.id === position.accountId)
   const security = securities.find((candidate) => candidate.id === position.securityId)
+  const currentPrice = quotes.get(security?.symbol ?? '') ?? null
+  const marketValue = currentPrice === null ? null : position.totalQuantity * currentPrice
+  const unrealizedGainLoss =
+    marketValue === null ? null : marketValue - position.totalQuantity * position.averagePurchasePrice
   return {
     ...position,
     accountName: account?.name ?? '',
@@ -874,6 +939,9 @@ function toPositionResponse(
     tradingCurrency: security?.tradingCurrency ?? '',
     sector: security?.sector ?? null,
     countryCode: security?.countryCode ?? null,
+    currentPrice,
+    marketValue,
+    unrealizedGainLoss,
   }
 }
 
@@ -961,6 +1029,8 @@ export function installFakeBackend(): FakeBackend {
   const quotes = defaultQuotes()
   const simulations = defaultSimulations()
   const risk = defaultRisk()
+  const valuations = defaultValuations()
+  const returns = defaultReturns()
   const requests: RequestLog[] = []
   const forcedStatuses = new Map<string, number>()
   let sessionValid = true
@@ -1565,7 +1635,7 @@ export function installFakeBackend(): FakeBackend {
       const eigene = accounts.filter((account) => account.portfolioId === portfolioId)
       const rows = positions
         .filter((position) => eigene.some((account) => account.id === position.accountId))
-        .map((position) => toPositionResponse(position, accounts, securities))
+        .map((position) => toPositionResponse(position, accounts, securities, quotes))
         .sort((left, right) => left.symbol.localeCompare(right.symbol))
       return Promise.resolve(ok(rows, 200, config))
     }
@@ -1590,6 +1660,46 @@ export function installFakeBackend(): FakeBackend {
       }
       const amount = analytics.get(`${art}|${portfolioId}|${currency}`) ?? 0
       return Promise.resolve(ok({ amount, currency }, 200, config))
+    }
+
+    const valuationMatch = /^\/portfolios\/(\d+)\/valuation$/.exec(url)
+    if (valuationMatch !== null && method === 'GET') {
+      const portfolioId = Number(valuationMatch[1])
+      const portfolio = portfolios.find((candidate) => candidate.id === portfolioId)
+      if (portfolio === undefined) {
+        return fail(404, 'Not Found', `Portfolio ${portfolioId} not found`, config)
+      }
+      return Promise.resolve(
+        ok(
+          {
+            portfolioId,
+            currency: portfolio.baseCurrency,
+            ...(valuations.get(portfolioId) ?? leereValuation()),
+          },
+          200,
+          config,
+        ),
+      )
+    }
+
+    const returnsMatch = /^\/portfolios\/(\d+)\/returns$/.exec(url)
+    if (returnsMatch !== null && method === 'GET') {
+      const portfolioId = Number(returnsMatch[1])
+      const portfolio = portfolios.find((candidate) => candidate.id === portfolioId)
+      if (portfolio === undefined) {
+        return fail(404, 'Not Found', `Portfolio ${portfolioId} not found`, config)
+      }
+      return Promise.resolve(
+        ok(
+          {
+            portfolioId,
+            currency: portfolio.baseCurrency,
+            ...(returns.get(portfolioId) ?? leereReturns()),
+          },
+          200,
+          config,
+        ),
+      )
     }
 
     const riskMatch = /^\/portfolios\/(\d+)\/risk$/.exec(url)
@@ -1789,6 +1899,8 @@ export function installFakeBackend(): FakeBackend {
     quotes,
     simulations,
     risk,
+    valuations,
+    returns,
     addUser: (username, role) => {
       const created: FakeUser = {
         id: nextId(users, 1),
