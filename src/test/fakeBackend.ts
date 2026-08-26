@@ -413,6 +413,63 @@ function defaultSecurities(): FakeSecurity[] {
 }
 
 /**
+ * Katalog der Live-Suche im Kaufformular (`GET /securities/search`, `POST
+ * /securities/lookup-or-create`).
+ *
+ * Enthält dieselben drei Wertpapiere wie `defaultSecurities` (eine Suche findet auch, was schon
+ * angelegt ist) sowie TSLA, das es lokal noch nicht gibt - nur damit lässt sich das automatische
+ * Anlegen aus der Suche heraus prüfen, ohne echte Marktdaten zu brauchen.
+ */
+function marketCatalog(): {
+  symbol: string
+  name: string
+  exchange: string
+  quoteType: string
+  tradingCurrency: string
+  sector: string | null
+  countryCode: string | null
+}[] {
+  return [
+    {
+      symbol: 'NESN',
+      name: 'Nestlé SA',
+      exchange: 'SIX',
+      quoteType: 'STOCK',
+      tradingCurrency: 'CHF',
+      sector: 'Basiskonsumgüter',
+      countryCode: 'CH',
+    },
+    {
+      symbol: 'AAPL',
+      name: 'Apple Inc.',
+      exchange: 'NASDAQ',
+      quoteType: 'STOCK',
+      tradingCurrency: 'USD',
+      sector: 'Technologie',
+      countryCode: 'US',
+    },
+    {
+      symbol: 'ZURN',
+      name: 'Zurich Insurance Group AG',
+      exchange: 'SIX',
+      quoteType: 'STOCK',
+      tradingCurrency: 'CHF',
+      sector: 'Finanzen',
+      countryCode: 'CH',
+    },
+    {
+      symbol: 'TSLA',
+      name: 'Tesla, Inc.',
+      exchange: 'NASDAQ',
+      quoteType: 'STOCK',
+      tradingCurrency: 'USD',
+      sector: 'Automobilindustrie',
+      countryCode: 'US',
+    },
+  ]
+}
+
+/**
  * Zwei Käufe auf NESN im CHF-Konto und einer auf AAPL im USD-Konto, alle in Portfolio 10.
  *
  * Absichtlich nicht nach Datum sortiert: der Endpunkt liefert neueste zuerst, und das soll ein Test
@@ -1361,6 +1418,58 @@ export function installFakeBackend(): FakeBackend {
       }
       securities.push(created)
       return Promise.resolve(ok(created, 201, config))
+    }
+
+    if (method === 'GET' && url === '/securities/search') {
+      const query = String(readParams(config).query ?? '').trim().toLowerCase()
+      const treffer = marketCatalog().filter(
+        (eintrag) =>
+          eintrag.symbol.toLowerCase().includes(query) || eintrag.name.toLowerCase().includes(query),
+      )
+      return Promise.resolve(
+        ok(
+          treffer.map((eintrag) => ({
+            symbol: eintrag.symbol,
+            name: eintrag.name,
+            exchange: eintrag.exchange,
+            quoteType: eintrag.quoteType,
+          })),
+          200,
+          config,
+        ),
+      )
+    }
+
+    if (method === 'POST' && url === '/securities/lookup-or-create') {
+      const symbol = String(readBody(config).symbol ?? '').trim().toUpperCase()
+      const vorhanden = securities.find((candidate) => candidate.symbol === symbol)
+      if (vorhanden !== undefined) {
+        return Promise.resolve(ok(vorhanden, 200, config))
+      }
+      const eintrag = marketCatalog().find((candidate) => candidate.symbol === symbol)
+      if (eintrag === undefined) {
+        return fail(
+          404,
+          'Not Found',
+          `No live quote available for ${symbol}, cannot register it automatically`,
+          config,
+        )
+      }
+      const created: FakeSecurity = {
+        id: nextId(securities, 200),
+        symbol: eintrag.symbol,
+        isin: null,
+        name: eintrag.name,
+        assetType: eintrag.quoteType,
+        exchangeCode: eintrag.exchange,
+        tradingCurrency: eintrag.tradingCurrency,
+        countryCode: eintrag.countryCode,
+        sector: eintrag.sector,
+        couponRate: null,
+        maturityDate: null,
+      }
+      securities.push(created)
+      return Promise.resolve(ok(created, 200, config))
     }
 
     if (url === '/fx-rates') {

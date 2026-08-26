@@ -18,8 +18,9 @@ import { useIsMobile } from '../components/useIsMobile'
 import { currencies } from '../format/currencies'
 import { heute } from '../format/dates'
 import { parseAmount } from '../format/numbers'
-import { useSecurities } from '../securities/useSecurities'
-import type { Security } from '../securities/securityApi'
+import { usePositions } from '../positions/usePositions'
+import type { Security, SecuritySearchResult } from '../securities/securityApi'
+import { useLookupOrCreateSecurity, useSecuritySearch, useSecurities } from '../securities/useSecurities'
 import {
   transactionTypeLabels,
   transactionTypes,
@@ -64,6 +65,11 @@ function braucht(type: TransactionType): {
  * Der Preis darf leer bleiben. Das Backend sucht dann den historischen Kurs zum Buchungsdatum und
  * antwortet mit 404, wenn keiner hinterlegt ist. Genau dieser Fall wird unten am Preisfeld erklärt,
  * statt als "Nicht gefunden" im Banner zu landen.
+ *
+ * Das Feld "Wertpapier" unterscheidet sich je Typ: beim Kauf sucht es live beim Marktdatenanbieter
+ * und legt ein neues Symbol bei Auswahl automatisch an (mit echten Stammdaten aus der Suche, nicht
+ * erfunden), bei allen anderen Typen zeigt es nur Wertpapiere mit einer offenen Position im
+ * gewählten Konto - ein Verkauf von etwas, das gar nicht im Bestand ist, ergäbe keinen Sinn.
  */
 export function TransactionFormDialog({
   open,
@@ -73,11 +79,18 @@ export function TransactionFormDialog({
 }: TransactionFormDialogProps) {
   const isMobile = useIsMobile()
   const securities = useSecurities()
+  const positions = usePositions(portfolioId)
   const create = useCreateTransaction(portfolioId)
+  const lookupOrCreate = useLookupOrCreateSecurity()
 
   const [accountId, setAccountId] = useState<number>(accounts[0]?.id ?? 0)
   const [type, setType] = useState<TransactionType>('BUY')
   const [security, setSecurity] = useState<Security | null>(null)
+  // Nur für den Kauf: die Sucheingabe und ihr zuletzt gewählter Treffer, getrennt von `security`,
+  // weil zwischen Auswahl und aufgelöstem Wertpapier ein Anlegen beim Backend liegt (lookupOrCreate).
+  const [buyText, setBuyText] = useState('')
+  const [buySelection, setBuySelection] = useState<SecuritySearchResult | null>(null)
+  const buySearch = useSecuritySearch(buyText)
   const [quantityText, setQuantityText] = useState('')
   const [priceText, setPriceText] = useState('')
   const [feeText, setFeeText] = useState('')
@@ -92,6 +105,17 @@ export function TransactionFormDialog({
   const sichtbar = braucht(type)
   const account = accounts.find((candidate) => candidate.id === accountId)
 
+  // Nur die Symbole mit einer offenen Position im gewählten Konto, nicht im ganzen Portfolio: eine
+  // Position in Konto A lässt sich nicht aus Konto B heraus verkaufen.
+  const gehalteneSymbole = new Set(
+    (positions.data ?? [])
+      .filter((position) => position.accountId === accountId)
+      .map((position) => position.symbol),
+  )
+  const gehalteneWertpapiere = (securities.data ?? []).filter((candidate) =>
+    gehalteneSymbole.has(candidate.symbol),
+  )
+
   function setFieldError(field: string, message: string): void {
     setFieldErrors({ [field]: message })
   }
@@ -103,6 +127,44 @@ export function TransactionFormDialog({
     if (next !== undefined && account !== undefined && currency === account.currency) {
       setCurrency(next.currency)
     }
+  }
+
+  /**
+   * Wechselt die Transaktionsart und verwirft die bisherige Wertpapierauswahl.
+   *
+   * Ohne das könnte etwa ein für den Verkauf gewähltes Wertpapier beim Wechsel zu einer anderen
+   * Buchungsart unbemerkt stehen bleiben, obwohl die Bedeutung des Feldes (Live-Suche vs. Bestand)
+   * eine andere geworden ist.
+   */
+  function handleTypeChange(nextType: TransactionType): void {
+    setType(nextType)
+    setFieldErrors({})
+    setSecurity(null)
+    setBuyText('')
+    setBuySelection(null)
+  }
+
+  /** Löst einen Treffer der Live-Suche in ein echtes, gespeichertes Wertpapier auf. */
+  function handleBuySelection(next: SecuritySearchResult | null): void {
+    setBuySelection(next)
+    if (next === null) {
+      setSecurity(null)
+      return
+    }
+    setFieldErrors({})
+    lookupOrCreate.mutate(next.symbol, {
+      onSuccess: (resolved) => {
+        setSecurity(resolved)
+        setCurrency(resolved.tradingCurrency)
+      },
+      onError: () => {
+        setSecurity(null)
+        setFieldError(
+          'securityId',
+          `${next.symbol} konnte nicht angelegt werden. Kein Live-Kurs beim Marktdatenanbieter verfügbar.`,
+        )
+      },
+    })
   }
 
   /** Liest und prüft alle Felder. `null` heisst: eine Feldmeldung steht, es wird nicht gesendet. */
@@ -262,10 +324,7 @@ export function TransactionFormDialog({
               select
               label="Typ"
               value={type}
-              onChange={(event) => {
-                setType(event.target.value as TransactionType)
-                setFieldErrors({})
-              }}
+              onChange={(event) => handleTypeChange(event.target.value as TransactionType)}
               required
               fullWidth
             >
@@ -276,35 +335,77 @@ export function TransactionFormDialog({
               ))}
             </TextField>
 
-            <Autocomplete
-              options={securities.data ?? []}
-              loading={securities.isPending}
-              value={security}
-              onChange={(_event, next) => {
-                setSecurity(next)
-                if (next !== null) {
-                  // Der Handelswährung folgen, weil ein Kauf üblicherweise in ihr abgerechnet wird.
-                  setCurrency(next.tradingCurrency)
+            {type === 'BUY' ? (
+              <Autocomplete
+                // Eigener key: ohne ihn hält React beim Wechsel der Transaktionsart dieselbe
+                // Autocomplete-Instanz am Leben und übernimmt deren internen inputValue-Zustand -
+                // der Wechsel von einem kontrollierten Eingabefeld (Kauf) zu einem unkontrollierten
+                // (jeder andere Typ) verletzt dann Reacts Annahme, dass sich das während der
+                // Lebensdauer einer Komponente nicht ändert.
+                key="buy"
+                options={buySearch.data ?? []}
+                loading={buySearch.isFetching || lookupOrCreate.isPending}
+                value={buySelection}
+                inputValue={buyText}
+                onInputChange={(_event, next) => setBuyText(next)}
+                onChange={(_event, next) => handleBuySelection(next)}
+                getOptionLabel={(option) => `${option.symbol} (${option.name})`}
+                isOptionEqualToValue={(option, chosen) => option.symbol === chosen.symbol}
+                filterOptions={(options) => options}
+                noOptionsText={
+                  buyText.trim().length < 2
+                    ? 'Mindestens zwei Zeichen eingeben.'
+                    : 'Kein Treffer beim Marktdatenanbieter.'
                 }
-              }}
-              getOptionLabel={(option) => `${option.symbol} (${option.name})`}
-              isOptionEqualToValue={(option, chosen) => option.id === chosen.id}
-              noOptionsText="Kein Wertpapier gefunden"
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Wertpapier"
-                  required
-                  error={fieldErrors.securityId !== undefined}
-                  helperText={
-                    fieldErrors.securityId ??
-                    (securities.isError
-                      ? 'Die Wertpapierliste konnte nicht geladen werden.'
-                      : 'Suche über Symbol oder Name.')
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Wertpapier"
+                    required
+                    error={fieldErrors.securityId !== undefined}
+                    helperText={
+                      fieldErrors.securityId ??
+                      'Symbol oder Name, z.B. AAPL oder Apple. Ein neues Symbol wird beim Auswählen angelegt.'
+                    }
+                  />
+                )}
+              />
+            ) : (
+              <Autocomplete
+                key="held"
+                options={gehalteneWertpapiere}
+                loading={securities.isPending || positions.isPending}
+                value={security}
+                onChange={(_event, next) => {
+                  setSecurity(next)
+                  if (next !== null) {
+                    // Der Handelswährung folgen, weil eine Buchung üblicherweise in ihr abgerechnet wird.
+                    setCurrency(next.tradingCurrency)
                   }
-                />
-              )}
-            />
+                }}
+                getOptionLabel={(option) => `${option.symbol} (${option.name})`}
+                isOptionEqualToValue={(option, chosen) => option.id === chosen.id}
+                noOptionsText={
+                  account === undefined
+                    ? 'Bitte zuerst ein Konto wählen.'
+                    : 'Keine offene Position in diesem Konto.'
+                }
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Wertpapier"
+                    required
+                    error={fieldErrors.securityId !== undefined}
+                    helperText={
+                      fieldErrors.securityId ??
+                      (securities.isError
+                        ? 'Die Wertpapierliste konnte nicht geladen werden.'
+                        : 'Nur Wertpapiere mit Bestand in diesem Konto.')
+                    }
+                  />
+                )}
+              />
+            )}
 
             {sichtbar.menge && (
               <TextField
@@ -414,7 +515,7 @@ export function TransactionFormDialog({
           <Button onClick={onClose} color="inherit">
             Abbrechen
           </Button>
-          <Button type="submit" variant="contained" loading={create.isPending}>
+          <Button type="submit" variant="contained" loading={create.isPending || lookupOrCreate.isPending}>
             Buchen
           </Button>
         </DialogActions>

@@ -29,14 +29,32 @@ function dialog() {
 }
 
 /**
- * Wählt im Autocomplete ein Wertpapier über sein Symbol.
+ * Wählt im Autocomplete ein bereits gehaltenes Wertpapier über sein Symbol.
  *
- * Die Optionsliste hängt im Portal ausserhalb des Dialogs, deshalb wird sie über `screen` gesucht und
- * nicht über `dialog()`.
+ * Gilt für jeden Typ ausser Kauf: die Optionsliste ist dort die Bestandsliste des gewählten Kontos
+ * und steht sofort, kein Tippen nötig. Sie hängt im Portal ausserhalb des Dialogs, deshalb wird sie
+ * über `screen` gesucht und nicht über `dialog()`.
  */
 async function waehleWertpapier(user: UserEvent, symbol: string): Promise<void> {
   await user.click(dialog().getByRole('combobox', { name: /^Wertpapier/ }))
   await user.click(await screen.findByRole('option', { name: new RegExp(`^${symbol} `) }))
+}
+
+/**
+ * Wählt beim Kauf ein Wertpapier über die Live-Suche.
+ *
+ * Anders als `waehleWertpapier`: hier muss erst getippt werden, die Vorschläge kommen debounced vom
+ * (Fake-)Marktdatenanbieter. Der abschliessende `waitFor` deckt das anschliessende Anlegen/Auflösen
+ * ab (`lookupOrCreate`) - der Buchen-Knopf bleibt so lange deaktiviert.
+ */
+async function sucheUndWaehleWertpapier(user: UserEvent, symbol: string): Promise<void> {
+  const feld = dialog().getByRole('combobox', { name: /^Wertpapier/ })
+  await user.click(feld)
+  await user.type(feld, symbol)
+  await user.click(await screen.findByRole('option', { name: new RegExp(`^${symbol} `) }, { timeout: 3000 }))
+  await waitFor(() => {
+    expect(dialog().getByRole('button', { name: 'Buchen' })).not.toBeDisabled()
+  })
 }
 
 describe('Transaktionen-Seite', () => {
@@ -100,7 +118,7 @@ describe('Transaktionen-Seite', () => {
     await screen.findByRole('table', { name: 'Bestände' })
 
     await user.click(screen.getByRole('button', { name: 'Neue Transaktion' }))
-    await waehleWertpapier(user, 'ZURN')
+    await sucheUndWaehleWertpapier(user, 'ZURN')
     await user.type(dialog().getByLabelText(/^Menge/), '4')
     await user.type(dialog().getByLabelText(/^Preis je Stück/), '500')
     await user.type(dialog().getByLabelText(/^Gebühr/), '10')
@@ -126,7 +144,7 @@ describe('Transaktionen-Seite', () => {
     await screen.findByRole('table', { name: 'Bestände' })
 
     await user.click(screen.getByRole('button', { name: 'Neue Transaktion' }))
-    await waehleWertpapier(user, 'ZURN')
+    await sucheUndWaehleWertpapier(user, 'ZURN')
     await user.type(dialog().getByLabelText(/^Menge/), '1')
     // Preis leer lassen: das Backend soll den hinterlegten Kurs suchen und findet für heute keinen.
     await user.click(dialog().getByRole('button', { name: 'Buchen' }))
@@ -144,7 +162,7 @@ describe('Transaktionen-Seite', () => {
     await screen.findByRole('table', { name: 'Bestände' })
 
     await user.click(screen.getByRole('button', { name: 'Neue Transaktion' }))
-    await waehleWertpapier(user, 'ZURN')
+    await sucheUndWaehleWertpapier(user, 'ZURN')
     await user.type(dialog().getByLabelText(/^Menge/), '100')
     await user.type(dialog().getByLabelText(/^Preis je Stück/), '500')
     await user.click(dialog().getByRole('button', { name: 'Buchen' }))
@@ -163,7 +181,7 @@ describe('Transaktionen-Seite', () => {
     await screen.findByRole('table', { name: 'Bestände' })
 
     await user.click(screen.getByRole('button', { name: 'Neue Transaktion' }))
-    await waehleWertpapier(user, 'NESN')
+    await sucheUndWaehleWertpapier(user, 'NESN')
     await user.type(dialog().getByLabelText(/^Menge/), '0')
     await user.click(dialog().getByRole('button', { name: 'Buchen' }))
 
@@ -171,6 +189,71 @@ describe('Transaktionen-Seite', () => {
     expect(backend.requests.some((request) => request.method === 'POST' && request.url.endsWith('/transactions'))).toBe(
       false,
     )
+  })
+
+  it('sucht beim Kauf live und legt ein noch unbekanntes Symbol automatisch an', async () => {
+    const { user } = await renderLoggedIn('/transaktionen')
+    await screen.findByRole('table', { name: 'Bestände' })
+    expect(backend.securities.some((candidate) => candidate.symbol === 'TSLA')).toBe(false)
+
+    await user.click(screen.getByRole('button', { name: 'Neue Transaktion' }))
+    await sucheUndWaehleWertpapier(user, 'TSLA')
+    await user.type(dialog().getByLabelText(/^Menge/), '2')
+    await user.type(dialog().getByLabelText(/^Preis je Stück/), '300')
+    await user.click(dialog().getByRole('button', { name: 'Buchen' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+    expect(backend.securities.some((candidate) => candidate.symbol === 'TSLA')).toBe(true)
+    const table = await screen.findByRole('table', { name: 'Bestände' })
+    expect(within(table).getByText('TSLA')).toBeInTheDocument()
+  })
+
+  it('meldet ein Symbol ohne Live-Kurs statt eine leere Auswahl zu buchen', async () => {
+    backend.forceStatus('/lookup-or-create', 404)
+    const { user } = await renderLoggedIn('/transaktionen')
+    await screen.findByRole('table', { name: 'Bestände' })
+
+    await user.click(screen.getByRole('button', { name: 'Neue Transaktion' }))
+    const feld = dialog().getByRole('combobox', { name: /^Wertpapier/ })
+    await user.click(feld)
+    await user.type(feld, 'ZURN')
+    await user.click(await screen.findByRole('option', { name: /^ZURN / }, { timeout: 3000 }))
+
+    expect(
+      await dialog().findByText(/ZURN konnte nicht angelegt werden\. Kein Live-Kurs/),
+    ).toBeInTheDocument()
+  })
+
+  it('beschränkt die Auswahl beim Verkauf auf gehaltene Wertpapiere im gewählten Konto', async () => {
+    const { user } = await renderLoggedIn('/transaktionen')
+    await screen.findByRole('table', { name: 'Bestände' })
+
+    await user.click(screen.getByRole('button', { name: 'Neue Transaktion' }))
+    await user.click(dialog().getByRole('combobox', { name: /^Typ/ }))
+    await user.click(await screen.findByRole('option', { name: 'Verkauf' }))
+
+    // Voreingestelltes Konto ist Cash CHF (100), dort steht nur NESN im Bestand.
+    await user.click(dialog().getByRole('combobox', { name: /^Wertpapier/ }))
+    expect(await screen.findByRole('option', { name: /^NESN / })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /^ZURN / })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /^AAPL / })).not.toBeInTheDocument()
+  })
+
+  it('wechselt die Bestandsauswahl beim Verkauf mit dem gewählten Konto', async () => {
+    const { user } = await renderLoggedIn('/transaktionen')
+    await screen.findByRole('table', { name: 'Bestände' })
+
+    await user.click(screen.getByRole('button', { name: 'Neue Transaktion' }))
+    await user.click(dialog().getByRole('combobox', { name: /^Typ/ }))
+    await user.click(await screen.findByRole('option', { name: 'Verkauf' }))
+    await user.click(dialog().getByRole('combobox', { name: /^Konto/ }))
+    await user.click(await screen.findByRole('option', { name: /^Cash USD/ }))
+
+    await user.click(dialog().getByRole('combobox', { name: /^Wertpapier/ }))
+    expect(await screen.findByRole('option', { name: /^AAPL / })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /^NESN / })).not.toBeInTheDocument()
   })
 
   it('verlangt ein Wertpapier, bevor gebucht wird', async () => {
