@@ -12,7 +12,7 @@ import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/DataState'
 import { gestern, vorJahren } from '../format/dates'
 import { formatAmount, formatDate, formatMonth } from '../format/numbers'
 import { SimulationBadge } from './SimulationBadge'
-import { VerlaufTabelle } from './VerlaufTabelle'
+import { VerlaufTabelle } from '../charts/VerlaufTabelle'
 import { useAssetClassComparison } from './useCompare'
 
 /** Zeiträume wie im Original als Presets. Der Endpunkt erlaubt 1 bis 100 Jahre. */

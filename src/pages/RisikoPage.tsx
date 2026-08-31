@@ -1,49 +1,24 @@
 import Alert from '@mui/material/Alert'
 import AlertTitle from '@mui/material/AlertTitle'
-import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import Stack from '@mui/material/Stack'
-import TextField from '@mui/material/TextField'
-import ToggleButton from '@mui/material/ToggleButton'
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
-import { useState } from 'react'
 import { RiskReturnScatter, type RiskReturnGroup, type RiskReturnPoint } from '../charts/RiskReturnScatter'
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/DataState'
 import { KpiCard } from '../components/KpiCard'
 import { toneFor } from '../components/kpiTone'
 import { PageHeader } from '../components/PageHeader'
 import { ResponsiveTable, type Column } from '../components/ResponsiveTable'
-import { gestern, vorJahren } from '../format/dates'
 import { formatAmount, formatDate, formatPercent } from '../format/numbers'
 import { PortfolioGate } from '../portfolios/PortfolioGate'
 import type { Portfolio } from '../portfolios/portfolioApi'
 import { ausschlussGrund } from '../risk/ausschluesse'
 import type { SecurityRisk } from '../risk/riskApi'
 import { useRiskAnalysis } from '../risk/useRisk'
-
-/**
- * Zeiträume als Presets in Kalendertagen, weil der Endpunkt `lookbackDays` so versteht (30 bis 3650).
- * Dazu ein frei wählbares Intervall (`custom`, siehe unten): der Endpunkt nimmt seit Kurzem auch
- * `from`/`to` direkt an, für alles zwischen "letzte Woche" und "seit 2016".
- */
-const zeitraeume = [
-  { tage: 90, label: '3 Monate' },
-  { tage: 365, label: '1 Jahr' },
-  { tage: 1095, label: '3 Jahre' },
-  { tage: 1825, label: '5 Jahre' },
-] as const
-
-/** Sentinel-Wert der Zeitraum-Auswahl für "eigenes Intervall", damit ein einziges Bedienelement reicht. */
-const BENUTZERDEFINIERT = 'custom'
-
-/**
- * Vorgeschlagene Benchmarks. Das Feld selbst ist eine freie Texteingabe (`Autocomplete freeSolo`):
- * jedes Symbol, das der Marktdatenanbieter kennt, ist als Referenz gültig, nicht nur diese drei.
- */
-const benchmarkVorschlaege = ['SPY', 'URTH', 'EWL'] as const
+import { ZeitraumLeiste } from '../zeitraum/ZeitraumLeiste'
+import { useZeitraumWahl } from '../zeitraum/useZeitraumWahl'
 
 /** Tage zwischen zwei ISO-Daten, für die Dauer des maximalen Rückgangs. */
 function tageZwischen(von: string, bis: string): number {
@@ -66,27 +41,15 @@ export function RisikoPage() {
 }
 
 function Risiko({ portfolio }: { portfolio: Portfolio }) {
-  const [auswahl, setAuswahl] = useState<number | typeof BENUTZERDEFINIERT>(365)
-  const [customFrom, setCustomFrom] = useState(vorJahren(1))
-  const [customTo, setCustomTo] = useState(gestern())
-  const [benchmark, setBenchmark] = useState<string>(benchmarkVorschlaege[0])
+  const wahl = useZeitraumWahl()
 
-  const istBenutzerdefiniert = auswahl === BENUTZERDEFINIERT
-  const customGueltig = customFrom !== '' && customTo !== '' && customFrom < customTo
-  const zeitraum =
-    istBenutzerdefiniert
-      ? ({ kind: 'custom', from: customFrom, to: customTo } as const)
-      : ({ kind: 'preset', lookbackDays: auswahl } as const)
-
-  const analyse = useRiskAnalysis(portfolio.id, zeitraum, benchmark, !istBenutzerdefiniert || customGueltig)
+  const analyse = useRiskAnalysis(portfolio.id, wahl.zeitraum, wahl.benchmark, wahl.gueltig)
   const daten = analyse.data
 
-  const zeitraumLabel = istBenutzerdefiniert
-    ? `${formatDate(customFrom)}–${formatDate(customTo)}`
-    : zeitraeume.find((eintrag) => eintrag.tage === auswahl)?.label ?? ''
+  const zeitraumLabel = wahl.label
   // Das Symbol aus der Antwort und nicht aus dem Zustand: so steht in der Beschriftung die Benchmark,
   // gegen die tatsächlich gerechnet wurde.
-  const referenz = daten?.benchmarkSymbol ?? benchmark
+  const referenz = daten?.benchmarkSymbol ?? wahl.benchmark
   const wertpapiere = daten?.securities ?? []
   const ausschluesse = daten?.excluded ?? []
 
@@ -118,71 +81,7 @@ function Risiko({ portfolio }: { portfolio: Portfolio }) {
       <Stack spacing={3}>
         <Card>
           <CardContent>
-            <Stack spacing={2}>
-              <Stack
-                direction={{ xs: 'column', sm: 'row' }}
-                spacing={2}
-                sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
-              >
-                <ToggleButtonGroup
-                  size="small"
-                  exclusive
-                  value={auswahl}
-                  onChange={(_event, wert: number | typeof BENUTZERDEFINIERT | null) => {
-                    if (wert !== null) {
-                      setAuswahl(wert)
-                    }
-                  }}
-                  aria-label="Zeitraum"
-                >
-                  {zeitraeume.map((eintrag) => (
-                    <ToggleButton key={eintrag.tage} value={eintrag.tage}>
-                      {eintrag.label}
-                    </ToggleButton>
-                  ))}
-                  <ToggleButton value={BENUTZERDEFINIERT}>Benutzerdefiniert</ToggleButton>
-                </ToggleButtonGroup>
-                <Autocomplete
-                  freeSolo
-                  size="small"
-                  options={benchmarkVorschlaege}
-                  value={benchmark}
-                  onInputChange={(_event, next) => setBenchmark(next.trim().toUpperCase())}
-                  sx={{ minWidth: 220 }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Benchmark"
-                      helperText="SPY, URTH, EWL oder ein beliebiges anderes Symbol"
-                    />
-                  )}
-                />
-              </Stack>
-
-              {istBenutzerdefiniert && (
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                  <TextField
-                    label="Von"
-                    type="date"
-                    size="small"
-                    value={customFrom}
-                    onChange={(event) => setCustomFrom(event.target.value)}
-                    error={!customGueltig}
-                    slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: gestern() } }}
-                  />
-                  <TextField
-                    label="Bis"
-                    type="date"
-                    size="small"
-                    value={customTo}
-                    onChange={(event) => setCustomTo(event.target.value)}
-                    error={!customGueltig}
-                    helperText={customGueltig ? undefined : '"Von" muss vor "Bis" liegen, "Bis" höchstens gestern.'}
-                    slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: gestern() } }}
-                  />
-                </Stack>
-              )}
-            </Stack>
+            <ZeitraumLeiste wahl={wahl} />
           </CardContent>
         </Card>
 

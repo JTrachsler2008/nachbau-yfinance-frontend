@@ -14,26 +14,35 @@ import { KpiCard } from '../components/KpiCard'
 import { toneFor } from '../components/kpiTone'
 import { PageHeader } from '../components/PageHeader'
 import { ResponsiveTable, type Column } from '../components/ResponsiveTable'
-import { formatMoney, formatPercent, formatQuantity, missingValue } from '../format/numbers'
+import { formatMoney, formatPercent, formatQuantity } from '../format/numbers'
 import { dividendenJeJahr, dividendenWaehrungen, type DividendenJahr } from '../performance/dividenden'
-import { useDividends, useRealizedGains, useReturns, useValuation } from '../performance/usePerformance'
+import {
+  useDividends,
+  useHistory,
+  useRealizedGains,
+  useReturns,
+  useValuation,
+} from '../performance/usePerformance'
+import { Wertverlauf } from '../performance/Wertverlauf'
 import { PortfolioGate } from '../portfolios/PortfolioGate'
 import type { Portfolio } from '../portfolios/portfolioApi'
 import { useTransactions } from '../transactions/useTransactions'
+import { ZeitraumLeiste } from '../zeitraum/ZeitraumLeiste'
+import { useZeitraumWahl } from '../zeitraum/useZeitraumWahl'
 
 /**
  * Auswertung des aktiven Portfolios (YOUNGOITV-452).
  *
  * Realisierte Gewinne und Dividendenerträge kommen wie zuvor vom Backend, in die Basiswährung des
- * Portfolios umgerechnet. Dazu jetzt Marktwert und die geldgewichtete Rendite (MWR): beide brauchen
- * nur einen Livekurs je Position und die tatsächlichen Cashflows aus der Transaktionshistorie, keine
+ * Portfolios umgerechnet. Dazu Marktwert und die geldgewichtete Rendite (MWR): beide brauchen nur
+ * einen Livekurs je Position und die tatsächlichen Cashflows aus der Transaktionshistorie, keine
  * historische Neubewertung.
  *
- * Die zeitgewichtete Rendite (TWR), Total Return, der historische Wertverlauf und das
- * Benchmark-Overlay haben weiterhin keinen Endpunkt: sie bräuchten eine Zerlegung der Historie in
- * Teilperioden, jede mit einer eigenen historischen Neubewertung aller zu diesem Zeitpunkt
- * gehaltenen Positionen - eine eigenständige, noch nicht abgeschlossene Arbeit. Diese Karten fehlen
- * deshalb weiterhin, statt aus Bestandsdaten geschätzt zu werden, und die Seite sagt offen, warum.
+ * Die zeitgewichtete Rendite (TWR), der Wertverlauf und der Benchmark-Vergleich kommen dagegen alle
+ * drei aus `GET /portfolios/{id}/history` - aus einem Aufruf, weil es eine Rechnung ist: die TWR ist
+ * der Endwert derselben verketteten Teilperioden, die auch die Indexlinie zeichnen. Sie hängen
+ * deshalb am gewählten Zeitraum, die vier Karten oben und die MWR nicht. Damit das nicht geraten
+ * werden muss, sagt es jede der drei Beschriftungen ausdrücklich.
  *
  * Die Jahresübersicht der Dividenden entsteht aus der Transaktionshistorie, also aus Daten, die
  * ohnehin schon in der Oberfläche liegen. Das ist keine nachgebaute Fachlogik, sondern eine Summe
@@ -49,6 +58,12 @@ function Auswertung({ portfolio }: { portfolio: Portfolio }) {
   const valuation = useValuation(portfolio.id)
   const returns = useReturns(portfolio.id)
   const transactions = useTransactions(portfolio.id)
+
+  const wahl = useZeitraumWahl()
+  const verlauf = useHistory(portfolio.id, wahl.zeitraum, wahl.benchmark, wahl.gueltig)
+  // Das Symbol aus der Antwort und nicht aus dem Zustand, wie auf der Risiko-Seite: so steht in der
+  // Beschriftung die Benchmark, gegen die tatsächlich gerechnet wurde.
+  const referenz = verlauf.data?.benchmarkSymbol ?? wahl.benchmark
 
   const [gewaehlteWaehrung, setGewaehlteWaehrung] = useState<string | null>(null)
 
@@ -124,47 +139,63 @@ function Auswertung({ portfolio }: { portfolio: Portfolio }) {
           />
         </Box>
 
+        {valuation.data !== undefined && valuation.data.excludedSymbols.length > 0 && (
+          <Alert severity="warning">
+            <AlertTitle>Nicht im Marktwert enthalten</AlertTitle>
+            Für {valuation.data.excludedSymbols.join(', ')} liefert der Marktdatenanbieter aktuell
+            keinen Kurs. Marktwert, Gewinn/Verlust und die geldgewichtete Rendite zählen nur die
+            übrigen Positionen.
+          </Alert>
+        )}
+
+        <Card>
+          <CardContent>
+            <ZeitraumLeiste wahl={wahl} />
+          </CardContent>
+        </Card>
+
         <Box
           sx={{
             display: 'grid',
             gap: 2,
-            gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+            gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' },
           }}
         >
           <KpiCard
             label="Geldgewichtete Rendite (MWR)"
             value={formatPercent(returns.data?.moneyWeightedReturn, { withSign: true })}
-            hint="Interner Zinsfuss über alle Ein- und Auszahlungen bis heute"
+            hint="Interner Zinsfuss über alle Ein- und Auszahlungen bis heute, unabhängig vom gewählten Zeitraum"
             tone={toneFor(returns.data?.moneyWeightedReturn)}
             isPending={returns.isPending}
             error={returns.isError ? returns.error : undefined}
             onRetry={() => void returns.refetch()}
           />
+          {/*
+            Die beiden Karten aus `/history` tragen absichtlich keinen eigenen Fehlerzustand: sie
+            hängen an derselben Abfrage wie der Wertverlauf darunter, und dessen Panel nennt Meldung
+            und Wiederholen einmal. Drei Kopien derselben Meldung sind dreimal dieselbe Information.
+          */}
           <KpiCard
             label="Zeitgewichtete Rendite (TWR)"
-            value={missingValue}
-            hint="Noch nicht umgesetzt, siehe Hinweis unten"
+            value={formatPercent(verlauf.data?.timeWeightedReturn, { withSign: true })}
+            hint={`Verkettete Teilperioden über ${wahl.label}, bereinigt um Ein- und Auszahlungen`}
+            tone={toneFor(verlauf.data?.timeWeightedReturn)}
+            isPending={verlauf.isPending}
+          />
+          <KpiCard
+            label={`Benchmark ${referenz}`}
+            value={formatPercent(verlauf.data?.benchmarkReturn, { withSign: true })}
+            hint={`Kursentwicklung der Benchmark über ${wahl.label}, direkt mit der TWR daneben vergleichbar`}
+            tone={toneFor(verlauf.data?.benchmarkReturn)}
+            isPending={verlauf.isPending}
           />
         </Box>
 
-        {valuation.data !== undefined && valuation.data.excludedSymbols.length > 0 && (
-          <Alert severity="warning">
-            <AlertTitle>Nicht im Marktwert enthalten</AlertTitle>
-            Für {valuation.data.excludedSymbols.join(', ')} liefert der Marktdatenanbieter aktuell
-            keinen Kurs. Marktwert, Gewinn/Verlust und die geldgewichtete Rendite oben zählen nur die
-            übrigen Positionen.
-          </Alert>
-        )}
-
-        <Alert severity="info">
-          <AlertTitle>Ohne TWR, Total Return und Wertverlauf</AlertTitle>
-          Für die zeitgewichtete Rendite, Total Return, den historischen Wertverlauf und das
-          Benchmark-Overlay gibt es im Backend weiterhin keinen Endpunkt. Sie bräuchten eine
-          Zerlegung der Historie in Teilperioden an jedem Kauf-/Verkaufsdatum, jede mit einer eigenen
-          historischen Neubewertung aller zu diesem Zeitpunkt gehaltenen Positionen - eine
-          eigenständige, noch nicht abgeschlossene Arbeit. Geschätzte Werte stehen hier bewusst
-          nicht.
-        </Alert>
+        <Wertverlauf
+          verlauf={verlauf}
+          currency={portfolio.baseCurrency}
+          zeitraumLabel={wahl.label}
+        />
 
         <Card>
           <CardContent>
