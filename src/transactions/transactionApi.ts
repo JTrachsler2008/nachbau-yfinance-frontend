@@ -1,10 +1,18 @@
 import { apiClient } from '../api/client'
 
-/** Werte des `TransactionType`-Enums im Backend. */
+/**
+ * Werte des `TransactionType`-Enums im Backend, in der Reihenfolge der Auswahlliste.
+ *
+ * Nicht in der Reihenfolge des Enums, sondern nach Häufigkeit gruppiert: Kauf und Verkauf zuerst, dann
+ * die laufenden Erträge, dann die seltenen Kapitalmassnahmen. Wer eine Anleihe bucht, findet Coupon
+ * und Rückzahlung so neben der Dividende statt am Ende einer Liste hinter Fusion.
+ */
 export const transactionTypes = [
   'BUY',
   'SELL',
   'DIVIDEND',
+  'COUPON',
+  'REDEMPTION',
   'SPLIT',
   'ACQUISITION',
   'MERGER',
@@ -17,6 +25,8 @@ export const transactionTypeLabels: Record<TransactionType, string> = {
   BUY: 'Kauf',
   SELL: 'Verkauf',
   DIVIDEND: 'Dividende',
+  COUPON: 'Coupon (Zinszahlung)',
+  REDEMPTION: 'Rückzahlung (Fälligkeit)',
   SPLIT: 'Split',
   ACQUISITION: 'Übernahme',
   MERGER: 'Fusion',

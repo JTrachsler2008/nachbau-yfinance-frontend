@@ -135,6 +135,28 @@ describe('Performance-Seite', () => {
     expect(within(karte('Geldgewichtete Rendite (MWR)')).getByText('+8.25 %')).toBeInTheDocument()
   })
 
+  /**
+   * Zins und Dividende sind zwei verschiedene Erträge und dürfen nicht in einer Zahl landen.
+   *
+   * Geprüft wird beides zusammen mit der Kennzeichnung netto gegen brutto: die zwei Summen sind nicht
+   * nach derselben Regel gebildet, und ohne den Zusatz an der Karte würde man sie als vergleichbar
+   * lesen.
+   */
+  it('zeigt den Zinsertrag als eigene Zahl neben den Dividenden', async () => {
+    await renderLoggedIn('/performance')
+    // Erst auf die Seite warten: bis das Portfolio geladen ist, steht keine der Karten im Dokument.
+    await screen.findByRole('heading', { level: 1, name: 'Performance' })
+
+    // Aus defaultAnalytics(): 96.25 Zinsertrag, 214.50 Dividenden.
+    expect(await within(karte('Zinsertrag')).findByText('CHF 96.25')).toBeInTheDocument()
+    expect(within(karte('Dividenden')).getByText('CHF 214.50')).toBeInTheDocument()
+    expect(within(karte('Zinsertrag')).getByText(/netto nach Gebühr und Steuer/)).toBeInTheDocument()
+    expect(within(karte('Dividenden')).getByText(/brutto/)).toBeInTheDocument()
+
+    // Eigener Endpunkt und nicht eine zweite Zahl aus /dividends.
+    expect(backend.requests.some((request) => request.url === '/portfolios/10/interest')).toBe(true)
+  })
+
   it('zeigt die zeitgewichtete Rendite und die Benchmark des gewählten Zeitraums', async () => {
     await renderLoggedIn('/performance')
     await warteAufVerlauf()

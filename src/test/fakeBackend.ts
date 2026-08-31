@@ -22,9 +22,10 @@ import { gestern, vorTagen } from '../format/dates'
  * Refresh-Token danach wertlos ist.
  *
  * Buchungen sind nachgebaut, nicht nur abgenickt: ein Kauf zieht Cash ab, legt eine Tranche an und
- * fortschreibt die Position, ein Verkauf verbraucht die Tranchen nach FIFO. Sonst würde der Test des
- * Buchungsformulars an einem Server vorbeilaufen, der jede Eingabe bestätigt, und die Meldungen für
- * fehlendes Cash oder fehlenden Kurs blieben ungeprüft.
+ * fortschreibt die Position, ein Verkauf und eine Rückzahlung verbrauchen die Tranchen nach FIFO, eine
+ * Zinszahlung schreibt netto aufs Konto. Sonst würde der Test des Buchungsformulars an einem Server
+ * vorbeilaufen, der jede Eingabe bestätigt, und die Meldungen für fehlendes Cash oder fehlenden Kurs
+ * blieben ungeprüft.
  */
 
 export interface FakeUser {
@@ -647,11 +648,15 @@ function defaultPrices(): Map<string, number> {
  * Ein Verlust bei den realisierten Gewinnen, damit die rote Färbung der Kennzahlenkarte an echten
  * Daten hängt. Portfolio 11 hat keinen Eintrag und liefert deshalb 0, was zu seinem leeren Bestand
  * passt.
+ *
+ * Zins und Dividende sind verschiedene Zahlen und keine Kopie voneinander: nur so fällt auf, wenn die
+ * Oberfläche eine der beiden Karten am falschen Endpunkt hängt.
  */
 function defaultAnalytics(): Map<string, number> {
   return new Map([
     ['realized-gains|10|CHF', -128.4],
     ['dividends|10|CHF', 214.5],
+    ['interest|10|CHF', 96.25],
   ])
 }
 
@@ -1311,6 +1316,18 @@ export function installFakeBackend(): FakeBackend {
     const tax = optionalNumber(body.tax)
     const splitRatio = optionalNumber(body.splitRatio)
 
+    if (type === 'REDEMPTION' && optionalNumber(body.price) === null) {
+      // Wortlaut der InvalidTransactionTypeException: das Backend sucht bei einer Rückzahlung keinen
+      // Kurs, weil ein Anleihenkurs in Prozent des Nominals notiert und der Rückzahlungsbetrag daraus
+      // nicht ableitbar wäre. Der Nachbau darf hier nicht nachgiebiger sein als das Original.
+      return fail(
+        400,
+        'Bad Request',
+        'REDEMPTION requires a price (the redemption amount per unit)',
+        config,
+      )
+    }
+
     let price = optionalNumber(body.price)
     if (price === null && type !== 'SPLIT') {
       const hinterlegt = prices.get(`${securityId}|${date}`)
@@ -1354,12 +1371,15 @@ export function installFakeBackend(): FakeBackend {
         position.averagePurchasePrice = einstand / position.totalQuantity
         lots.push({ positionId: position.id, quantity, purchasePrice: kurs, purchaseDate: date })
       }
-    } else if (type === 'SELL') {
+    } else if (type === 'SELL' || type === 'REDEMPTION') {
+      // Eine Rückzahlung nimmt denselben Weg wie ein Verkauf: sie zieht den Bestand ab, verbraucht die
+      // Tranchen nach FIFO und schreibt den Betrag netto aufs Konto. Der Unterschied liegt allein
+      // darin, dass nicht der Anleger verkauft, sondern der Schuldner zurückzahlt.
       if (position === undefined || position.totalQuantity < quantity) {
         return fail(
           400,
           'Bad Request',
-          `Account ${accountId} has insufficient shares for a SELL of ${quantity}`,
+          `Account ${accountId} has insufficient shares for a ${type} of ${quantity}`,
           config,
         )
       }
@@ -1371,6 +1391,11 @@ export function installFakeBackend(): FakeBackend {
       }
     } else if (type === 'DIVIDEND') {
       account.cashAmount += kurs * quantity
+    } else if (type === 'COUPON') {
+      // Netto, anders als bei der Dividende darüber: das Backend zieht bei einer Zinszahlung Gebühr
+      // und Steuer ab, bei einer Dividende nicht. Der Nachbau hält diesen Unterschied fest, statt
+      // beide gleich zu behandeln - sonst würde er die Abweichung verdecken.
+      account.cashAmount += kurs * quantity - nebenkosten
     } else if (type === 'SPLIT') {
       if (position === undefined || splitRatio === null || splitRatio <= 0) {
         return fail(400, 'Bad Request', `Split for security ${securityId} cannot be applied`, config)
@@ -1894,7 +1919,7 @@ export function installFakeBackend(): FakeBackend {
       return Promise.resolve(ok(rows, 200, config))
     }
 
-    const analyticsMatch = /^\/portfolios\/(\d+)\/(realized-gains|dividends)$/.exec(url)
+    const analyticsMatch = /^\/portfolios\/(\d+)\/(realized-gains|dividends|interest)$/.exec(url)
     if (analyticsMatch !== null && method === 'GET') {
       const portfolioId = Number(analyticsMatch[1])
       const art = analyticsMatch[2]
