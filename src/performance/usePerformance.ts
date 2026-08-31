@@ -3,6 +3,7 @@ import { zeitraumKey, type Zeitraum } from '../zeitraum/zeitraum'
 import {
   fetchDividends,
   fetchHistory,
+  fetchInterest,
   fetchRealizedGains,
   fetchReturns,
   fetchValuation,
@@ -24,6 +25,8 @@ export const performanceKeys = {
     ['portfolios', portfolioId, 'realized-gains', currency] as const,
   dividends: (portfolioId: number, currency: string) =>
     ['portfolios', portfolioId, 'dividends', currency] as const,
+  interest: (portfolioId: number, currency: string) =>
+    ['portfolios', portfolioId, 'interest', currency] as const,
   valuation: (portfolioId: number) => ['portfolios', portfolioId, 'valuation'] as const,
   returns: (portfolioId: number) => ['portfolios', portfolioId, 'returns'] as const,
   history: (portfolioId: number, zeitraum: Zeitraum, benchmark: string) =>
@@ -47,6 +50,16 @@ export function useDividends(
   return useQuery({
     queryKey: performanceKeys.dividends(portfolioId, currency),
     queryFn: () => fetchDividends(portfolioId, currency),
+  })
+}
+
+export function useInterest(
+  portfolioId: number,
+  currency: string,
+): UseQueryResult<CurrencyAmount> {
+  return useQuery({
+    queryKey: performanceKeys.interest(portfolioId, currency),
+    queryFn: () => fetchInterest(portfolioId, currency),
   })
 }
 

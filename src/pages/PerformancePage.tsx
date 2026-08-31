@@ -19,6 +19,7 @@ import { dividendenJeJahr, dividendenWaehrungen, type DividendenJahr } from '../
 import {
   useDividends,
   useHistory,
+  useInterest,
   useRealizedGains,
   useReturns,
   useValuation,
@@ -33,15 +34,20 @@ import { useZeitraumWahl } from '../zeitraum/useZeitraumWahl'
 /**
  * Auswertung des aktiven Portfolios (YOUNGOITV-452).
  *
- * Realisierte Gewinne und Dividendenerträge kommen wie zuvor vom Backend, in die Basiswährung des
- * Portfolios umgerechnet. Dazu Marktwert und die geldgewichtete Rendite (MWR): beide brauchen nur
+ * Realisierte Gewinne, Dividenden und Zinsertrag kommen wie zuvor vom Backend, in die Basiswährung
+ * des Portfolios umgerechnet. Dazu Marktwert und die geldgewichtete Rendite (MWR): beide brauchen nur
  * einen Livekurs je Position und die tatsächlichen Cashflows aus der Transaktionshistorie, keine
  * historische Neubewertung.
+ *
+ * Zinsertrag steht als eigene Karte neben den Dividenden und nicht in derselben Summe: die Coupons
+ * einer Anleihe sind ein anderer Ertrag als eine Dividende, und die zwei Zahlen sind auch nicht nach
+ * derselben Regel gebildet - der Zinsertrag ist netto nach Gebühr und Steuer, die Dividendensumme
+ * brutto. Beide Beschriftungen sagen es deshalb ausdrücklich, sonst liest man sie als vergleichbar.
  *
  * Die zeitgewichtete Rendite (TWR), der Wertverlauf und der Benchmark-Vergleich kommen dagegen alle
  * drei aus `GET /portfolios/{id}/history` - aus einem Aufruf, weil es eine Rechnung ist: die TWR ist
  * der Endwert derselben verketteten Teilperioden, die auch die Indexlinie zeichnen. Sie hängen
- * deshalb am gewählten Zeitraum, die vier Karten oben und die MWR nicht. Damit das nicht geraten
+ * deshalb am gewählten Zeitraum, die fünf Karten oben und die MWR nicht. Damit das nicht geraten
  * werden muss, sagt es jede der drei Beschriftungen ausdrücklich.
  *
  * Die Jahresübersicht der Dividenden entsteht aus der Transaktionshistorie, also aus Daten, die
@@ -55,6 +61,7 @@ export function PerformancePage() {
 function Auswertung({ portfolio }: { portfolio: Portfolio }) {
   const realizedGains = useRealizedGains(portfolio.id, portfolio.baseCurrency)
   const dividends = useDividends(portfolio.id, portfolio.baseCurrency)
+  const interest = useInterest(portfolio.id, portfolio.baseCurrency)
   const valuation = useValuation(portfolio.id)
   const returns = useReturns(portfolio.id)
   const transactions = useTransactions(portfolio.id)
@@ -96,11 +103,16 @@ function Auswertung({ portfolio }: { portfolio: Portfolio }) {
       <PageHeader title="Performance" subtitle={`Portfolio ${portfolio.name}`} />
 
       <Stack spacing={3}>
+        {/*
+          Fünf Spalten ab `lg`, nicht vier: die Karte Zinsertrag gehört neben die Dividenden, weil
+          beide dieselbe Frage beantworten ("was hat das Depot ausgeschüttet"). Als einzelne Karte in
+          einer zweiten Reihe stünde sie optisch abseits der Erträge, zu denen sie zählt.
+        */}
         <Box
           sx={{
             display: 'grid',
             gap: 2,
-            gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(4, 1fr)' },
+            gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(5, 1fr)' },
           }}
         >
           <KpiCard
@@ -132,10 +144,18 @@ function Auswertung({ portfolio }: { portfolio: Portfolio }) {
           <KpiCard
             label="Dividenden"
             value={formatMoney(dividends.data?.amount, dividends.data?.currency)}
-            hint="Alle Dividendenzahlungen, umgerechnet in die Basiswährung"
+            hint="Alle Dividendenzahlungen brutto, umgerechnet in die Basiswährung"
             isPending={dividends.isPending}
             error={dividends.error}
             onRetry={() => void dividends.refetch()}
+          />
+          <KpiCard
+            label="Zinsertrag"
+            value={formatMoney(interest.data?.amount, interest.data?.currency)}
+            hint="Alle Coupons netto nach Gebühr und Steuer, umgerechnet in die Basiswährung"
+            isPending={interest.isPending}
+            error={interest.error}
+            onRetry={() => void interest.refetch()}
           />
         </Box>
 

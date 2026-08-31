@@ -337,6 +337,10 @@ function Historie({ rows }: { rows: readonly PortfolioTransaction[] }) {
  * Kauf verteuert sich um Gebühr und Steuer, Verkauf verringert sich um beide, ein Split hat keinen
  * Betrag. Bewusst clientseitig gerechnet und nicht vom Backend geholt: es sind die Werte derselben
  * Zeile, und ein zusätzliches Feld im DTO hätte dieselbe Rechnung nur verschoben.
+ *
+ * Zinszahlung und Rückzahlung rechnen wie der Verkauf, weil das Backend bei ihnen ebenfalls netto
+ * gutschreibt. Die Dividende bleibt brutto - dort wertet es Gebühr und Steuer nicht aus, und ein
+ * Abzug hier zeigte einen Betrag, der so nie aufs Konto gekommen ist.
  */
 function betrag(row: PortfolioTransaction): number | null {
   if (row.price === null) {
@@ -345,7 +349,11 @@ function betrag(row: PortfolioTransaction): number | null {
   const brutto = row.price * row.quantity
   const fee = row.fee ?? 0
   const tax = row.tax ?? 0
-  if (row.transactionType === 'SELL') {
+  if (
+    row.transactionType === 'SELL' ||
+    row.transactionType === 'COUPON' ||
+    row.transactionType === 'REDEMPTION'
+  ) {
     return brutto - fee - tax
   }
   if (row.transactionType === 'BUY') {

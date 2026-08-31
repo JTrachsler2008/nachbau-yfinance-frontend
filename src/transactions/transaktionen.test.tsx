@@ -305,6 +305,87 @@ describe('Transaktionen-Seite', () => {
     expect(within(nesn).getByText('CHF 46.50')).toBeInTheDocument()
   })
 
+  /**
+   * Anleihen: Zinszahlung und Rückzahlung.
+   *
+   * Der Coupon wird netto gebucht, Gebühr und Steuer gehen also ab - anders als bei der Dividende, die
+   * das Backend brutto gutschreibt. Deshalb werden hier beide Nebenkosten eingetippt: eine Buchung, die
+   * sie stillschweigend verfallen liesse, hätte einen um 1.50 zu hohen Kontostand.
+   */
+  it('bucht eine Zinszahlung netto aufs Konto und lässt den Bestand unverändert', async () => {
+    const { user } = await renderLoggedIn('/transaktionen')
+    await screen.findByRole('table', { name: 'Bestände' })
+
+    await user.click(screen.getByRole('button', { name: 'Neue Transaktion' }))
+    await user.click(dialog().getByRole('combobox', { name: /^Typ/ }))
+    await user.click(await screen.findByRole('option', { name: 'Coupon (Zinszahlung)' }))
+    await waehleWertpapier(user, 'NESN')
+    await user.type(dialog().getByLabelText(/^Menge/), '15')
+    await user.type(dialog().getByLabelText(/^Zinsbetrag je Stück/), '2.5')
+    await user.type(dialog().getByLabelText(/^Gebühr/), '1')
+    await user.type(dialog().getByLabelText(/^Steuer/), '0.5')
+    await user.click(dialog().getByRole('button', { name: 'Buchen' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    // 12'450.50 + 15 * 2.50 - 1.00 Gebühr - 0.50 Steuer
+    expect(backend.accounts[0].cashAmount).toBe(12486.5)
+    const table = await screen.findByRole('table', { name: 'Bestände' })
+    const nesn = within(table).getByText('NESN').closest('tr') as HTMLElement
+    expect(within(nesn).getByText('15')).toBeInTheDocument()
+    expect(within(nesn).getByText('CHF 93.00')).toBeInTheDocument()
+  })
+
+  it('bucht eine Rückzahlung, schliesst die Position und schreibt den Betrag aufs Konto', async () => {
+    const { user } = await renderLoggedIn('/transaktionen')
+    await screen.findByRole('table', { name: 'Bestände' })
+
+    await user.click(screen.getByRole('button', { name: 'Neue Transaktion' }))
+    await user.click(dialog().getByRole('combobox', { name: /^Typ/ }))
+    await user.click(await screen.findByRole('option', { name: 'Rückzahlung (Fälligkeit)' }))
+    await waehleWertpapier(user, 'NESN')
+    await user.type(dialog().getByLabelText(/^Menge/), '15')
+    await user.type(dialog().getByLabelText(/^Rückzahlungsbetrag je Stück/), '100')
+    await user.click(dialog().getByRole('button', { name: 'Buchen' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    // 12'450.50 + 15 * 100
+    expect(backend.accounts[0].cashAmount).toBe(13950.5)
+    const table = await screen.findByRole('table', { name: 'Bestände' })
+    await waitFor(() => {
+      expect(within(table).queryByText('NESN')).not.toBeInTheDocument()
+    })
+    // Die Tranchen sind mit der Position weg, nicht nur ihre Menge auf 0 gesetzt.
+    expect(backend.lots.filter((lot) => lot.positionId === 400)).toHaveLength(0)
+  })
+
+  it('verlangt bei der Rückzahlung den Betrag, statt den Kurs suchen zu lassen', async () => {
+    const { user } = await renderLoggedIn('/transaktionen')
+    await screen.findByRole('table', { name: 'Bestände' })
+
+    await user.click(screen.getByRole('button', { name: 'Neue Transaktion' }))
+    await user.click(dialog().getByRole('combobox', { name: /^Typ/ }))
+    await user.click(await screen.findByRole('option', { name: 'Rückzahlung (Fälligkeit)' }))
+    await waehleWertpapier(user, 'NESN')
+    await user.type(dialog().getByLabelText(/^Menge/), '15')
+    await user.click(dialog().getByRole('button', { name: 'Buchen' }))
+
+    expect(
+      await dialog().findByText('Bitte den Rückzahlungsbetrag je Stück eintragen.'),
+    ).toBeInTheDocument()
+    // Nicht gesendet: ein Anleihenkurs in Prozent des Nominals wäre als Rückzahlungsbetrag falsch.
+    expect(
+      backend.requests.some(
+        (request) => request.method === 'POST' && request.url.endsWith('/transactions'),
+      ),
+    ).toBe(false)
+  })
+
   it('zeigt die offenen Tranchen einer Position mit Summe und gewichtetem Mittel', async () => {
     const { user } = await renderLoggedIn('/transaktionen')
     const table = await screen.findByRole('table', { name: 'Bestände' })

@@ -3,8 +3,8 @@ import type { RiskExclusion } from '../risk/riskApi'
 import { zeitraumParams, type Zeitraum } from '../zeitraum/zeitraum'
 
 /**
- * Antwort von `GET /portfolios/{id}/realized-gains` und `GET /portfolios/{id}/dividends`
- * (`CurrencyAmountResponseDto`).
+ * Antwort von `GET /portfolios/{id}/realized-gains`, `GET /portfolios/{id}/dividends` und
+ * `GET /portfolios/{id}/interest` (`CurrencyAmountResponseDto`).
  *
  * Die Währung kommt mit zurück, obwohl der Aufruf sie vorgibt: so steht in der Oberfläche die
  * Währung, in der das Backend tatsächlich gerechnet hat, und nicht die, die angefragt wurde.
@@ -30,6 +30,24 @@ export async function fetchDividends(
   currency: string,
 ): Promise<CurrencyAmount> {
   const { data } = await apiClient.get<CurrencyAmount>(`/portfolios/${portfolioId}/dividends`, {
+    params: { currency },
+  })
+  return data
+}
+
+/**
+ * Zinsertrag aus allen Coupon-Buchungen, netto nach Gebühr und Steuer.
+ *
+ * Ein eigener Endpunkt neben `/dividends` und keine zweite Zahl darin: Zins und Dividende sind zwei
+ * getrennt zu lesende Erträge. Die beiden Summen sind nicht nach derselben Regel gebildet - der
+ * Zinsertrag ist netto, die Dividendensumme brutto, jede so, wie das Backend sie dem Konto
+ * gutschreibt.
+ */
+export async function fetchInterest(
+  portfolioId: number,
+  currency: string,
+): Promise<CurrencyAmount> {
+  const { data } = await apiClient.get<CurrencyAmount>(`/portfolios/${portfolioId}/interest`, {
     params: { currency },
   })
   return data

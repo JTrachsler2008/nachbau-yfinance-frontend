@@ -40,31 +40,69 @@ interface TransactionFormDialogProps {
 function braucht(type: TransactionType): {
   menge: boolean
   preis: boolean
+  preisPflicht: boolean
   gebuehren: boolean
   verhaeltnis: boolean
 } {
   return {
     menge: type !== 'SPLIT',
     preis: type !== 'SPLIT',
-    // Gebühr und Steuer wertet das Backend nur bei Kauf und Verkauf aus. Bei den übrigen Typen
-    // würden eingetippte Werte stillschweigend verfallen, deshalb sind die Felder dort nicht da.
-    gebuehren: type === 'BUY' || type === 'SELL',
+    // Bei der Rückzahlung ist der Preis Pflicht, weil das Backend sie ohne ihn ablehnt: ein
+    // Anleihenkurs notiert in Prozent des Nominals, aus ihm ist der Rückzahlungsbetrag nicht
+    // ableitbar. Lieber hier danach fragen als den 400er des Endpunkts abwarten.
+    preisPflicht: type === 'REDEMPTION',
+    // Gebühr und Steuer wertet das Backend bei Kauf, Verkauf, Zinszahlung und Rückzahlung aus. Bei den
+    // übrigen Typen würden eingetippte Werte stillschweigend verfallen, deshalb sind die Felder dort
+    // nicht da - auch nicht bei der Dividende, die das Backend brutto gutschreibt.
+    gebuehren: type === 'BUY' || type === 'SELL' || type === 'COUPON' || type === 'REDEMPTION',
     verhaeltnis: type === 'SPLIT',
   }
 }
 
 /**
+ * Beschriftung des Preisfelds. "Preis je Stück" trifft es nur beim Handel.
+ *
+ * Bei einer Zinszahlung und einer Rückzahlung ist die Zahl kein Kurs, sondern ein Betrag je Stück -
+ * derselbe Feldname für zwei verschiedene Dinge wäre die Einladung, den Anleihenkurs einzutippen.
+ */
+function preisLabel(type: TransactionType): string {
+  if (type === 'COUPON') {
+    return 'Zinsbetrag je Stück'
+  }
+  if (type === 'REDEMPTION') {
+    return 'Rückzahlungsbetrag je Stück'
+  }
+  return 'Preis je Stück'
+}
+
+/** Hinweis unter dem Preisfeld, je Typ. */
+function preisHinweis(type: TransactionType): string {
+  if (type === 'COUPON') {
+    return 'Zins je Stück für diese Zahlung. Leer lassen würde den Anleihenkurs zum Datum einsetzen, das ist hier fast nie gemeint.'
+  }
+  if (type === 'REDEMPTION') {
+    return 'Pflichtfeld. Bei Rückzahlung zu 100 % ist es der Nominalwert je Stück.'
+  }
+  return 'Leer lassen, um den hinterlegten Kurs zum Datum zu nehmen.'
+}
+
+/**
  * Buchungsformular (YOUNGOITV-448).
  *
- * Alle sechs Typen des Backends sind wählbar, nicht nur Kauf, Verkauf und Dividende wie im Original.
+ * Alle acht Typen des Backends sind wählbar, nicht nur Kauf, Verkauf und Dividende wie im Original.
  * Der UI/UX-Plan liess diese Entscheidung offen; die Alternative wäre, dass Splits, Übernahmen und
  * Fusionen nur per Hand gegen die API buchbar bleiben, obwohl das Backend sie vollständig verarbeitet
  * und ein nicht gebuchter Split jede Folgerechnung verfälscht. Je Typ sind nur die Felder sichtbar,
  * die das Backend für ihn auch auswertet.
  *
- * Der Preis darf leer bleiben. Das Backend sucht dann den historischen Kurs zum Buchungsdatum und
- * antwortet mit 404, wenn keiner hinterlegt ist. Genau dieser Fall wird unten am Preisfeld erklärt,
- * statt als "Nicht gefunden" im Banner zu landen.
+ * Anleihen brauchen dafür kein eigenes Formular: eine Anleihe wird wie jedes andere Wertpapier
+ * gekauft, ihre Zinszahlung ist eine Buchung vom Typ Coupon und ihre Fälligkeit eine Rückzahlung. Die
+ * Stückzinsen beim Kauf stecken im Kaufpreis und sind deshalb kein eigenes Feld.
+ *
+ * Der Preis darf meist leer bleiben. Das Backend sucht dann den historischen Kurs zum Buchungsdatum
+ * und antwortet mit 404, wenn keiner hinterlegt ist. Genau dieser Fall wird unten am Preisfeld
+ * erklärt, statt als "Nicht gefunden" im Banner zu landen. Ausnahme ist die Rückzahlung: dort ist der
+ * Betrag Pflicht (siehe `braucht`).
  *
  * Das Feld "Wertpapier" unterscheidet sich je Typ: beim Kauf sucht es live beim Marktdatenanbieter
  * und legt ein neues Symbol bei Auswahl automatisch an (mit echten Stammdaten aus der Suche, nicht
@@ -189,6 +227,10 @@ export function TransactionFormDialog({
     }
 
     let price: number | null = null
+    if (sichtbar.preisPflicht && priceText.trim() === '') {
+      setFieldError('price', 'Bitte den Rückzahlungsbetrag je Stück eintragen.')
+      return null
+    }
     if (sichtbar.preis && priceText.trim() !== '') {
       const parsed = parseAmount(priceText)
       if (parsed === null || parsed <= 0) {
@@ -438,15 +480,14 @@ export function TransactionFormDialog({
 
             {sichtbar.preis && (
               <TextField
-                label="Preis je Stück"
+                label={preisLabel(type)}
                 inputMode="decimal"
                 value={priceText}
                 onChange={(event) => setPriceText(event.target.value)}
+                required={sichtbar.preisPflicht}
                 fullWidth
                 error={fieldErrors.price !== undefined}
-                helperText={
-                  fieldErrors.price ?? 'Leer lassen, um den hinterlegten Kurs zum Datum zu nehmen.'
-                }
+                helperText={fieldErrors.price ?? preisHinweis(type)}
               />
             )}
 
@@ -531,6 +572,9 @@ function fachlicheMeldung(type: TransactionType, original: string): string {
   }
   if (type === 'SELL') {
     return 'Der Bestand in diesem Konto reicht für den Verkauf nicht aus.'
+  }
+  if (type === 'REDEMPTION') {
+    return 'Der Bestand in diesem Konto reicht für die Rückzahlung nicht aus. Zurückgezahlt werden kann nur, was noch im Depot liegt.'
   }
   if (type === 'SPLIT') {
     return 'Der Split konnte nicht gebucht werden. Ohne Bestand im gewählten Konto gibt es nichts umzurechnen.'
