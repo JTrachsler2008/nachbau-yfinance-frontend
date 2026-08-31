@@ -14,6 +14,14 @@ export interface AuthContextValue {
    */
   role: UserRole | null
   isAuthenticated: boolean
+  /**
+   * `true`, bis der Start-Refresh entschieden hat, ob das httpOnly-Cookie eine Sitzung fortsetzt.
+   *
+   * In dieser Zeit ist `isAuthenticated` noch `false`, ohne dass das schon "nicht angemeldet"
+   * bedeutet. Die Route-Guards müssen den Unterschied kennen, sonst leiten sie bei jedem Reload
+   * kurz auf die Login-Seite um.
+   */
+  isBootstrapping: boolean
   /** Meldet an und wirft im Fehlerfall den `ApiError` weiter, damit die Seite ihn anzeigen kann. */
   login: (username: string, password: string) => Promise<void>
   logout: () => void

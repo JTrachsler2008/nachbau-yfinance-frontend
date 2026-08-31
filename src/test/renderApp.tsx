@@ -52,7 +52,9 @@ export async function renderLoggedIn(initialRoute = '/') {
   const view = renderApp(initialRoute)
   const user = userEvent.setup()
 
-  await user.type(screen.getByLabelText(/^Benutzername/), demoUser.username)
+  // findBy und nicht getBy: beim Start prüft der `AuthProvider` erst per Refresh, ob ein Cookie eine
+  // Sitzung fortsetzt. Solange das läuft, steht statt des Formulars ein Platzhalter.
+  await user.type(await screen.findByLabelText(/^Benutzername/), demoUser.username)
   await user.type(screen.getByLabelText(/^Passwort/), demoUser.password)
   await user.click(screen.getByRole('button', { name: 'Anmelden' }))
   // Der Abmelden-Knopf steht nur in der Shell, ist also der Beweis, dass die Anmeldung durch ist.
