@@ -199,6 +199,7 @@ describe('Performance-Seite', () => {
       10,
       verlaufMit({
         seriesFrom: spaeterBeginn,
+        seriesFromReason: 'MISSING_DATA',
         excluded: [{ symbol: 'AAPL', reason: 'NO_PRICE_HISTORY' }],
       }),
     )
@@ -209,8 +210,34 @@ describe('Performance-Seite', () => {
     expect(
       within(hinweis).getByText(new RegExp(`beginnt erst am ${formatDate(spaeterBeginn)}`)),
     ).toBeInTheDocument()
-    expect(within(hinweis).getByText(/Keine Kurshistorie im Zeitraum/)).toBeInTheDocument()
-    expect(within(hinweis).getByText('AAPL')).toBeInTheDocument()
+    expect(hinweis.className).toContain('MuiAlert-colorWarning')
+
+    const ausschluss = hinweisfeld('Nicht im Wertverlauf enthalten')
+    expect(within(ausschluss).getByText(/Keine Kurshistorie im Zeitraum/)).toBeInTheDocument()
+    expect(within(ausschluss).getByText('AAPL')).toBeInTheDocument()
+  })
+
+  /**
+   * Der andere Grund für einen späteren Beginn: das Depot lag bis dahin leer. Getrennt geprüft, weil
+   * die Oberfläche ihn getrennt behandeln muss - derselbe Satz in Warnfarbe würde eine normale
+   * Vorgeschichte wie ein Datenproblem aussehen lassen.
+   */
+  it('erklärt einen späteren Beginn ohne Bestand als Vorgeschichte und nicht als Mangel', async () => {
+    const ersterKauf = vorTagen(30)
+    backend.history.set(
+      10,
+      verlaufMit({ seriesFrom: ersterKauf, seriesFromReason: 'NOT_INVESTED' }),
+    )
+    await renderLoggedIn('/performance')
+    await warteAufVerlauf()
+
+    const hinweis = hinweisfeld('Das Depot war nicht den ganzen Zeitraum am Markt')
+    expect(
+      within(hinweis).getByText(new RegExp(`beginnt am ${formatDate(ersterKauf)}`)),
+    ).toBeInTheDocument()
+    expect(hinweis.className).toContain('MuiAlert-colorInfo')
+    expect(screen.queryByText('Nicht der ganze Zeitraum ist bewertbar')).not.toBeInTheDocument()
+    expect(screen.queryByText('Nicht im Wertverlauf enthalten')).not.toBeInTheDocument()
   })
 
   it('erfindet ohne eingesetztes Kapital keine zeitgewichtete Rendite', async () => {

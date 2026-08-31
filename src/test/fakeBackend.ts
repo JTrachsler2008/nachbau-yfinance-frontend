@@ -310,6 +310,11 @@ export interface FakePortfolioHistory {
    * Zeitraum setzt hier ein späteres Datum, wie es das Backend bei fehlenden frühen Kursen liefert.
    */
   seriesFrom: string | null
+  /**
+   * Gehört zu `seriesFrom` und wird nicht daraus abgeleitet: welcher der beiden Gründe gilt, weiss nur
+   * das echte Backend. `NOT_INVESTED` (Depot lag leer) oder `MISSING_DATA` (Kurse fehlten).
+   */
+  seriesFromReason: string | null
   excluded: { symbol: string; reason: string }[]
 }
 
@@ -783,6 +788,7 @@ function leereHistorie(): FakePortfolioHistory {
     timeWeightedReturn: null,
     benchmarkReturn: 11.25,
     seriesFrom: null,
+    seriesFromReason: null,
     excluded: [],
   }
 }
@@ -817,6 +823,7 @@ function defaultHistory(): Map<number, FakePortfolioHistory> {
         timeWeightedReturn: 16.4,
         benchmarkReturn: 11.25,
         seriesFrom: null,
+        seriesFromReason: null,
         excluded: [],
       },
     ],
@@ -2002,6 +2009,7 @@ export function installFakeBackend(): FakeBackend {
             // Ohne Punkte gibt es keinen ersten bewertbaren Tag. Sonst beginnt die Reihe am Anfang des
             // Zeitraums, solange ein Test nichts Späteres hinterlegt hat.
             seriesFrom: punkte.length === 0 ? null : (verlauf.seriesFrom ?? zeitraum.von),
+            seriesFromReason: verlauf.seriesFromReason,
             benchmarkSymbol: zeitraum.benchmark,
             timeWeightedReturn: verlauf.timeWeightedReturn,
             benchmarkReturn: verlauf.benchmarkReturn,

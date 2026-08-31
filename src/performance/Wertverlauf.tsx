@@ -57,10 +57,14 @@ export function Wertverlauf({
     { key: 'benchmark', label: `Benchmark ${referenz}` },
   ]
 
-  // Die Reihe beginnt später als angefragt, wenn an den früheren Tagen ein Kurs oder ein Wechselkurs
-  // fehlte. Das gehört sichtbar dazu: sonst wirkt der Zeitraum kürzer gewählt, als er war.
+  // Die Reihe beginnt später als angefragt: entweder lag im Depot bis dahin nichts, oder es fehlten
+  // Kurse. Das gehört sichtbar dazu, sonst wirkt der Zeitraum kürzer gewählt, als er war - und die
+  // Rendite darunter bezieht sich auf diesen kürzeren Zeitraum, nicht auf den gewählten.
   const beginntSpaeter =
     daten !== undefined && daten.seriesFrom !== null && daten.seriesFrom > daten.from
+  // Jede andere Kennung, auch eine hier noch unbekannte, gilt als Mangel: ein Datenloch als harmlos
+  // darzustellen ist der teurere der beiden Fehler.
+  const nochNichtAngelegt = daten?.seriesFromReason === 'NOT_INVESTED'
   const ausschluesse = daten?.excluded ?? []
 
   return (
@@ -81,17 +85,37 @@ export function Wertverlauf({
             />
           ) : (
             <>
-              {(beginntSpaeter || ausschluesse.length > 0) && (
-                <Alert severity="warning">
-                  <AlertTitle>Nicht der ganze Zeitraum ist bewertbar</AlertTitle>
-                  {beginntSpaeter && (
-                    <Typography variant="body2" gutterBottom>
+              {/*
+                Zwei getrennte Felder und nicht eines mit zwei Absätzen: ein Depot, das später gekauft
+                hat, ist kein Mangel, und eine Warnfarbe daneben würde eine normale Vorgeschichte wie
+                einen Fehler aussehen lassen. Ein fehlender Kurs ist einer.
+              */}
+              {beginntSpaeter &&
+                (nochNichtAngelegt ? (
+                  <Alert severity="info">
+                    <AlertTitle>Das Depot war nicht den ganzen Zeitraum am Markt</AlertTitle>
+                    <Typography variant="body2">
+                      Die Linie beginnt am {formatDate(daten.seriesFrom)}: davor lag kein Wertpapier im
+                      Depot. Rendite und Vergleichslinie beginnen ebenfalls dort und nicht am{' '}
+                      {formatDate(daten.from)} - eine Benchmark mit Vorlauf wäre neben einer Rendite
+                      ohne Vorlauf nicht vergleichbar.
+                    </Typography>
+                  </Alert>
+                ) : (
+                  <Alert severity="warning">
+                    <AlertTitle>Nicht der ganze Zeitraum ist bewertbar</AlertTitle>
+                    <Typography variant="body2">
                       Die Linie beginnt erst am {formatDate(daten.seriesFrom)} statt am{' '}
                       {formatDate(daten.from)}. Für die Tage davor fehlte zu mindestens einem
                       gehaltenen Wertpapier ein Kurs oder ein Wechselkurs. Die zeitgewichtete Rendite
                       bezieht sich deshalb ebenfalls erst auf diesen Tag.
                     </Typography>
-                  )}
+                  </Alert>
+                ))}
+
+              {ausschluesse.length > 0 && (
+                <Alert severity="warning">
+                  <AlertTitle>Nicht im Wertverlauf enthalten</AlertTitle>
                   {ausschluesse.map((ausschluss) => (
                     <Typography key={ausschluss.symbol} variant="body2">
                       <strong>{ausschluss.symbol}</strong>: {ausschlussGrund(ausschluss.reason)}
