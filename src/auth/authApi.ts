@@ -1,4 +1,4 @@
-import { apiClient, loginPath } from '../api/client'
+import { apiClient, loginPath, logoutPath } from '../api/client'
 
 /** Rollen aus `UserRole` des Backends. */
 export type UserRole = 'PRIVATANLEGER' | 'MANAGER' | 'ADMIN'
@@ -39,6 +39,16 @@ export async function requestLogin(username: string, password: string): Promise<
 export async function fetchMe(): Promise<Me> {
   const { data } = await apiClient.get<Me>('/users/me')
   return data
+}
+
+/**
+ * Entwertet den Refresh-Token serverseitig und löscht sein Cookie.
+ *
+ * Ohne diesen Aufruf würde das Abmelden nur den Browserspeicher leeren: das Cookie bliebe liegen und
+ * der nächste Seitenaufruf könnte damit eine Sitzung fortsetzen, die der Benutzer beendet hat.
+ */
+export async function requestLogout(): Promise<void> {
+  await apiClient.post(logoutPath)
 }
 
 /**

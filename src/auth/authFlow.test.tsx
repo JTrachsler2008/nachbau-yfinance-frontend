@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { apiClient, getAuthToken, setAuthToken } from '../api/client'
@@ -44,8 +44,9 @@ describe('Route-Guard', () => {
 
     expect(await screen.findByText('Bitte anmelden')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Dashboard' })).not.toBeInTheDocument()
-    // Ohne Anmeldung darf gar keine Anfrage an das Backend gehen.
-    expect(backend.requests).toHaveLength(0)
+    // Ohne Anmeldung geht einzig der Start-Refresh hinaus, der prüft, ob ein Cookie eine Sitzung
+    // fortsetzt. Keine einzige Datenanfrage - die würde mit 401 antworten und nichts anzeigen.
+    expect(backend.requests.map((request) => request.url)).toEqual(['/auth/refresh'])
   })
 
   it('leitet unbekannte Pfade auf das Dashboard und damit auf die Anmeldung', async () => {
@@ -111,6 +112,100 @@ describe('Anmelden', () => {
   })
 })
 
+/**
+ * Ein Reload wirft den ganzen Modulspeicher weg, das Zugriffs-Token also mit. Im Test heisst das:
+ * Baum abräumen, Token vergessen, neu rendern. Das Cookie-Glas des Nachbaus bleibt stehen, genau wie
+ * der Browser sein Cookie behält.
+ */
+function reload(route = '/') {
+  cleanup()
+  setAuthToken(null)
+  renderApp(route)
+}
+
+describe('Sitzung über einen Reload', () => {
+  it('bleibt angemeldet und lädt die Seite ohne Login-Formular', async () => {
+    renderApp('/')
+    await fillLogin(demoUser.username, demoUser.password)
+    await screen.findByRole('heading', { name: 'Dashboard' })
+
+    reload('/risiko')
+
+    expect(await screen.findByRole('heading', { name: 'Risiko' })).toBeInTheDocument()
+    expect(loginPageMarker()).not.toBeInTheDocument()
+    // Das neue Zugriffs-Token kommt aus dem Refresh, nicht aus einer zweiten Anmeldung.
+    expect(getAuthToken()).toBe(`test-token.${demoUser.username}`)
+    expect(backend.requests.filter((request) => request.url === '/auth/login')).toHaveLength(1)
+  })
+
+  it('führt ohne Cookie zur Anmeldung', async () => {
+    renderApp('/')
+    await fillLogin(demoUser.username, demoUser.password)
+    await screen.findByRole('heading', { name: 'Dashboard' })
+
+    // Ein anderer Browser oder ein gelöschtes Cookie: der Refresh hat nichts vorzulegen.
+    backend.clearCookies()
+    reload('/risiko')
+
+    expect(await screen.findByText('Bitte anmelden')).toBeInTheDocument()
+    expect(getAuthToken()).toBeNull()
+  })
+
+  it('löst einen abgefangenen Refresh-Token nur einmal ein', async () => {
+    renderApp('/')
+    await fillLogin(demoUser.username, demoUser.password)
+    await screen.findByRole('heading', { name: 'Dashboard' })
+
+    // Zwei Reloads hintereinander: der zweite gelingt nur, wenn der erste Refresh einen neuen Token
+    // ins Cookie gelegt hat. Ohne Rotation wäre das nicht zu unterscheiden.
+    reload()
+    await screen.findByRole('heading', { name: 'Dashboard' })
+    reload()
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument()
+  })
+})
+
+describe('Abgelaufenes Zugriffs-Token', () => {
+  it('wird still erneuert und die Anfrage wiederholt', async () => {
+    renderApp('/')
+    await fillLogin(demoUser.username, demoUser.password)
+    await screen.findByRole('heading', { name: 'Dashboard' })
+
+    const vorher = backend.requests.length
+    backend.expireAccessTokenOnce()
+    let status: number | undefined
+    await act(async () => {
+      status = (await apiClient.get('/portfolios')).status
+    })
+
+    // Der Aufrufer merkt vom 401 nichts, er bekommt seine Antwort.
+    expect(status).toBe(200)
+    // Und die Sitzung bleibt: kein Sprung auf die Login-Seite.
+    expect(loginPageMarker()).not.toBeInTheDocument()
+    expect(getAuthToken()).not.toBeNull()
+    expect(backend.requests.slice(vorher).map((request) => request.url)).toEqual([
+      '/portfolios',
+      '/auth/refresh',
+      '/portfolios',
+    ])
+  })
+
+  it('meldet ab, wenn auch der Refresh scheitert', async () => {
+    renderApp('/')
+    await fillLogin(demoUser.username, demoUser.password)
+    await screen.findByRole('heading', { name: 'Dashboard' })
+
+    backend.expireSession()
+    await act(async () => {
+      await apiClient.get('/portfolios').catch(() => undefined)
+    })
+
+    expect(await screen.findByText('Bitte anmelden')).toBeInTheDocument()
+    expect(getAuthToken()).toBeNull()
+  })
+})
+
 describe('Abmelden', () => {
   it('bringt zurück zur Login-Seite und vergisst den Token', async () => {
     renderApp('/')
@@ -121,6 +216,23 @@ describe('Abmelden', () => {
 
     expect(await screen.findByText('Bitte anmelden')).toBeInTheDocument()
     expect(getAuthToken()).toBeNull()
+  })
+
+  it('entwertet den Refresh-Token, ein Reload führt zur Anmeldung', async () => {
+    renderApp('/')
+    const user = await fillLogin(demoUser.username, demoUser.password)
+    await screen.findByRole('heading', { name: 'Dashboard' })
+
+    await user.click(screen.getByRole('button', { name: 'Abmelden' }))
+    await screen.findByText('Bitte anmelden')
+
+    // Ohne den Aufruf beim Server bliebe das Cookie liegen und der nächste Seitenaufruf hätte die
+    // Sitzung fortgesetzt, die der Benutzer gerade beendet hat.
+    await waitFor(() => {
+      expect(backend.hasRefreshCookie()).toBe(false)
+    })
+    reload()
+    expect(await screen.findByText('Bitte anmelden')).toBeInTheDocument()
   })
 
   it('führt ein abgelaufenes Token bei der nächsten Anfrage zurück zur Anmeldung', async () => {
@@ -201,7 +313,8 @@ describe('Registrieren', () => {
     await user.type(screen.getByLabelText(/^Passwort/), 'kurz')
 
     expect(screen.getByRole('button', { name: 'Konto anlegen' })).toBeDisabled()
-    expect(backend.requests).toHaveLength(0)
+    // Nur der Start-Refresh, keine Registrierung: das Formular hält die zu kurze Eingabe selbst auf.
+    expect(backend.requests.map((request) => request.url)).toEqual(['/auth/refresh'])
   })
 
   it('meldet einen bereits vergebenen Benutzernamen verständlich', async () => {

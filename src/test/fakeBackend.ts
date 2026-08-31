@@ -4,7 +4,7 @@ import {
   type AxiosResponse,
   type InternalAxiosRequestConfig,
 } from 'axios'
-import { apiClient, loginPath, type BackendErrorBody } from '../api/client'
+import { apiClient, loginPath, logoutPath, refreshPath, type BackendErrorBody } from '../api/client'
 import { gestern, vorTagen } from '../format/dates'
 
 /**
@@ -16,6 +16,10 @@ import { gestern, vorTagen } from '../format/dates'
  * Die Antworten folgen den Formen, die per curl gegen das laufende Backend geprüft wurden:
  * `POST /auth/login` liefert `{ token }`, `GET /users/me` liefert `{ username, role }`, `POST /users`
  * ist ohne Token erreichbar und antwortet mit 201 und fester Rolle PRIVATANLEGER.
+ *
+ * Die Sitzung ist mitsamt Cookie nachgebaut (siehe `refreshCookie`): nur so ist prüfbar, dass ein
+ * Reload angemeldet bleibt, dass ein 401 einmalig per Refresh geheilt wird und dass ein eingelöster
+ * Refresh-Token danach wertlos ist.
  *
  * Buchungen sind nachgebaut, nicht nur abgenickt: ein Kauf zieht Cash ab, legt eine Tranche an und
  * fortschreibt die Position, ein Verkauf verbraucht die Tranchen nach FIFO. Sonst würde der Test des
@@ -337,8 +341,28 @@ export interface FakeBackend {
   addUser: (username: string, role: FakeUser['role']) => FakeUser
   /** Setzt die Rolle eines bestehenden Benutzers, wie `PATCH /users/{id}/role` es täte. */
   setRole: (username: string, role: FakeUser['role']) => void
-  /** Lässt geschützte Endpunkte ab jetzt mit 401 antworten, wie bei abgelaufenem Token. */
+  /**
+   * Lässt geschützte Endpunkte ab jetzt mit 401 antworten, wie bei abgelaufenem Token, und entwertet
+   * dabei auch den Refresh-Token. Ohne das zweite würde ein 401 sofort per Refresh geheilt und der
+   * Fall "Sitzung zu Ende" wäre nicht mehr prüfbar.
+   */
   expireSession: () => void
+  /**
+   * Wirft den Inhalt des Cookie-Glases weg, ohne den Server zu berühren - der Fall eines Besuchers
+   * ohne Sitzung oder eines anderen Browsers.
+   */
+  clearCookies: () => void
+  /**
+   * Lässt die nächste geschützte Anfrage mit 401 antworten, danach wieder alles wie zuvor.
+   *
+   * Steht für ein abgelaufenes Zugriffs-Token bei gültigem Refresh-Token. Der Nachbau kann alte von
+   * neuen Zugriffs-Token nicht unterscheiden, weil `tokenFor` allein aus dem Benutzernamen besteht -
+   * dieser einmalige Fehlschlag ist das Ersatzmittel dafür und genau der Fall, den der Client durch
+   * einen Refresh mit anschliessender Wiederholung heilen soll.
+   */
+  expireAccessTokenOnce: () => void
+  /** `true`, solange der Nachbau ein Refresh-Cookie hält. Zeigt, dass das Abmelden es löscht. */
+  hasRefreshCookie: () => boolean
   /**
    * Lässt jeden Pfad, der `urlFragment` enthält, mit `status` antworten.
    *
@@ -1041,6 +1065,28 @@ export function installFakeBackend(): FakeBackend {
   const forcedStatuses = new Map<string, number>()
   let sessionValid = true
 
+  /**
+   * Cookie-Glas und Token-Tabelle des Nachbaus.
+   *
+   * Der Adapter sitzt unterhalb von axios, aber oberhalb des Browsers: ein echtes httpOnly-Cookie
+   * gibt es hier nicht, jsdom würde es nicht setzen. Also wird beides nachgebaut - `refreshCookie`
+   * steht für das, was der Browser hält, `refreshTokens` für das, was der Server noch anerkennt.
+   *
+   * Damit ist die Rotation prüfbar: ein zweites Einlösen desselben Wertes muss scheitern.
+   */
+  let refreshCookie: string | null = null
+  const refreshTokens = new Map<string, string>()
+  let refreshCounter = 0
+  let einmaligAbgelaufen = false
+
+  function issueRefreshToken(username: string): string {
+    refreshCounter += 1
+    const token = `refresh-token.${username}.${refreshCounter}`
+    refreshTokens.set(token, username)
+    refreshCookie = token
+    return token
+  }
+
   /** FIFO: älteste Tranche zuerst, eine teilweise verbrauchte bleibt mit ihrer Restmenge stehen. */
   function verbraucheTranchen(positionId: number, quantity: number): void {
     let offen = quantity
@@ -1215,7 +1261,31 @@ export function installFakeBackend(): FakeBackend {
       if (found === undefined) {
         return fail(401, 'Unauthorized', 'Bad credentials', config)
       }
+      issueRefreshToken(found.username)
       return Promise.resolve(ok({ token: tokenFor(found.username) }, 200, config))
+    }
+
+    if (method === 'POST' && url === refreshPath) {
+      // Wie im Backend: der Token im Cookie ist der ganze Nachweis, ein Authorization-Header spielt
+      // hier keine Rolle. Fehlt das Cookie oder ist der Wert nicht mehr anerkannt, kommt 401 - mit
+      // derselben unspezifischen Meldung wie in der InvalidRefreshTokenException.
+      const vorgelegt = refreshCookie
+      const besitzer = vorgelegt === null ? undefined : refreshTokens.get(vorgelegt)
+      if (vorgelegt === null || besitzer === undefined || !sessionValid) {
+        return fail(401, 'Unauthorized', 'Refresh token is not valid', config)
+      }
+      // Rotation: der eingelöste Wert ist danach wertlos.
+      refreshTokens.delete(vorgelegt)
+      issueRefreshToken(besitzer)
+      return Promise.resolve(ok({ token: tokenFor(besitzer) }, 200, config))
+    }
+
+    if (method === 'POST' && url === logoutPath) {
+      if (refreshCookie !== null) {
+        refreshTokens.delete(refreshCookie)
+      }
+      refreshCookie = null
+      return Promise.resolve(ok(null, 204, config))
     }
 
     if (method === 'POST' && url === '/users') {
@@ -1250,6 +1320,11 @@ export function installFakeBackend(): FakeBackend {
     const username = usernameFromHeader(authorization)
     if (username === null || !sessionValid) {
       return fail(401, 'Unauthorized', 'Full authentication is required', config)
+    }
+
+    if (einmaligAbgelaufen) {
+      einmaligAbgelaufen = false
+      return fail(401, 'Unauthorized', 'JWT expired', config)
     }
 
     // Nach der Anmeldeprüfung, wie in einer Filterkette: ein abgelaufenes Token bleibt ein 401, auch
@@ -1953,7 +2028,15 @@ export function installFakeBackend(): FakeBackend {
     },
     expireSession: () => {
       sessionValid = false
+      refreshTokens.clear()
     },
+    clearCookies: () => {
+      refreshCookie = null
+    },
+    expireAccessTokenOnce: () => {
+      einmaligAbgelaufen = true
+    },
+    hasRefreshCookie: () => refreshCookie !== null,
     forceStatus: (urlFragment, status) => {
       forcedStatuses.set(urlFragment, status)
     },
