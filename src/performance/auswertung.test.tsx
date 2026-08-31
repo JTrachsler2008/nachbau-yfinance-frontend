@@ -1,15 +1,23 @@
 import { screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { setAuthToken } from '../api/client'
-import { installFakeBackend, type FakeBackend, type FakeTransaction } from '../test/fakeBackend'
+import { vorTagen } from '../format/dates'
+import { formatDate } from '../format/numbers'
+import {
+  installFakeBackend,
+  type FakeBackend,
+  type FakePortfolioHistory,
+  type FakeTransaction,
+} from '../test/fakeBackend'
 import { renderLoggedIn } from '../test/renderApp'
 
 /**
  * Performance-Seite (YOUNGOITV-452) am Gesamtsystem.
  *
- * Geprüft werden die beiden Zahlen, die die Seite überhaupt behaupten darf: die vom Backend
- * gelieferten Summen und die Jahresauswertung aus der Historie. Dazu die Trennung nach Währung,
- * denn eine addierte Mischung aus CHF und USD wäre im Diagramm nicht als Fehler zu erkennen.
+ * Geprüft werden die Zahlen, die die Seite überhaupt behaupten darf: die vom Backend gelieferten
+ * Summen, der Wertverlauf samt zeitgewichteter Rendite und die Jahresauswertung aus der Historie.
+ * Dazu die Trennung nach Währung, denn eine addierte Mischung aus CHF und USD wäre im Diagramm nicht
+ * als Fehler zu erkennen.
  */
 
 let backend: FakeBackend
@@ -73,6 +81,40 @@ function karte(label: string): HTMLElement {
   return titel.closest('.MuiCard-root') as HTMLElement
 }
 
+/**
+ * Wartet, bis der Wertverlauf geladen ist.
+ *
+ * Auf die Tabelle und nicht auf die Überschrift: die steht schon während des Ladens da, die Karten
+ * daneben zeigen dann noch ihr Ladeskelett - eine Prüfung darauf wäre grün, bevor es etwas zu sehen
+ * gibt.
+ */
+async function warteAufVerlauf(): Promise<void> {
+  await screen.findByRole('table', { name: 'Depotwert und Einsatz' })
+}
+
+/** Die letzte Abfrage des Wertverlaufs für Portfolio 10, für die Prüfung der Parameter. */
+function letzteVerlaufsabfrage() {
+  return backend.requests.filter((request) => request.url === '/portfolios/10/history').at(-1)
+}
+
+/**
+ * Der Vorgabeverlauf von Portfolio 10 mit geänderten Feldern.
+ *
+ * Wirft, wenn es ihn nicht gibt: ein `{...undefined}` würde einen Verlauf ohne Punkte hinterlegen und
+ * der Test wäre grün, ohne das zu prüfen, was er prüfen soll.
+ */
+function verlaufMit(werte: Partial<FakePortfolioHistory>): FakePortfolioHistory {
+  const vorgabe = backend.history.get(10)
+  if (vorgabe === undefined) {
+    throw new Error('Portfolio 10 hat im Ausgangsbestand keinen Wertverlauf')
+  }
+  return { ...vorgabe, ...werte }
+}
+
+function hinweisfeld(titel: string): HTMLElement {
+  return screen.getByText(titel).closest('.MuiAlert-root') as HTMLElement
+}
+
 function jahreszeile(jahr: string): HTMLElement {
   const tabelle = screen.getByRole('table', { name: 'Dividenden je Jahr' })
   return within(tabelle).getByText(jahr).closest('tr') as HTMLElement
@@ -93,11 +135,102 @@ describe('Performance-Seite', () => {
     expect(within(karte('Geldgewichtete Rendite (MWR)')).getByText('+8.25 %')).toBeInTheDocument()
   })
 
-  it('benennt die weiterhin fehlende zeitgewichtete Rendite statt sie zu schätzen', async () => {
+  it('zeigt die zeitgewichtete Rendite und die Benchmark des gewählten Zeitraums', async () => {
     await renderLoggedIn('/performance')
+    await warteAufVerlauf()
 
-    expect(await screen.findByText('Ohne TWR, Total Return und Wertverlauf')).toBeInTheDocument()
+    // Aus defaultHistory(): Indexlinie bis 116.40, Benchmark bis 111.25.
+    expect(within(karte('Zeitgewichtete Rendite (TWR)')).getByText('+16.4 %')).toBeInTheDocument()
+    expect(within(karte('Benchmark SPY')).getByText('+11.25 %')).toBeInTheDocument()
+    // Welche Zahl am Zeitraum hängt und welche nicht, muss an der Karte stehen: MWR und TWR daneben
+    // wären sonst zwei Renditen desselben Portfolios ohne erkennbaren Unterschied.
+    expect(
+      within(karte('Zeitgewichtete Rendite (TWR)')).getByText(/über 1 Jahr/),
+    ).toBeInTheDocument()
+    expect(
+      within(karte('Geldgewichtete Rendite (MWR)')).getByText(/unabhängig vom gewählten Zeitraum/),
+    ).toBeInTheDocument()
+  })
+
+  it('zeichnet Depotwert gegen Einsatz und die Entwicklung gegen die Benchmark', async () => {
+    await renderLoggedIn('/performance')
+    await warteAufVerlauf()
+
+    // Der letzte Depotwert ist der Marktwert der Karte oben, der Einsatz dessen Einstand: die Lücke
+    // zwischen den Linien am rechten Rand ist genau der ausgewiesene Gewinn von 276.60.
+    expect(
+      screen.getByRole('img', {
+        name: "Depotwert und Einsatz in CHF: Depotwert von CHF 2'800.00 auf CHF 3'260.00, Einsatz von CHF 2'983.40 auf CHF 2'983.40",
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('img', {
+        name: 'Entwicklung im Vergleich, Basis 100: Portfolio von 100.00 auf 116.40, Benchmark SPY von 100.00 auf 111.25',
+      }),
+    ).toBeInTheDocument()
+
+    // Textalternative mit Beträgen statt Indexpunkten, sonst wäre die Einheit der Tabelle geraten.
+    const tabelle = screen.getByRole('table', { name: 'Depotwert und Einsatz' })
+    const zeile = within(tabelle).getByText('Depotwert').closest('tr') as HTMLElement
+    expect(within(zeile).getByText("CHF 2'800.00")).toBeInTheDocument()
+    expect(within(zeile).getByText("CHF 3'260.00")).toBeInTheDocument()
+    expect(within(zeile).getByText('+16.43 %')).toBeInTheDocument()
+  })
+
+  it('überträgt den gewählten Zeitraum in die Abfrage des Wertverlaufs', async () => {
+    const { user } = await renderLoggedIn('/performance')
+    await warteAufVerlauf()
+
+    expect(letzteVerlaufsabfrage()?.params).toEqual({ lookbackDays: 365, benchmark: 'SPY' })
+
+    await user.click(within(screen.getByRole('group', { name: 'Zeitraum' })).getByText('3 Monate'))
+
+    expect(
+      await screen.findByRole('heading', { name: 'Wertverlauf (3 Monate)' }),
+    ).toBeInTheDocument()
+    expect(letzteVerlaufsabfrage()?.params).toEqual({ lookbackDays: 90, benchmark: 'SPY' })
+  })
+
+  it('nennt den verkürzten Zeitraum und die nicht bewertbaren Wertpapiere', async () => {
+    // Ein Datum innerhalb des Jahres statt eines festen: sonst wäre der Test in einem Jahr grün, ohne
+    // dass der Hinweis noch erscheint.
+    const spaeterBeginn = vorTagen(30)
+    backend.history.set(
+      10,
+      verlaufMit({
+        seriesFrom: spaeterBeginn,
+        excluded: [{ symbol: 'AAPL', reason: 'NO_PRICE_HISTORY' }],
+      }),
+    )
+    await renderLoggedIn('/performance')
+    await warteAufVerlauf()
+
+    const hinweis = hinweisfeld('Nicht der ganze Zeitraum ist bewertbar')
+    expect(
+      within(hinweis).getByText(new RegExp(`beginnt erst am ${formatDate(spaeterBeginn)}`)),
+    ).toBeInTheDocument()
+    expect(within(hinweis).getByText(/Keine Kurshistorie im Zeitraum/)).toBeInTheDocument()
+    expect(within(hinweis).getByText('AAPL')).toBeInTheDocument()
+  })
+
+  it('erfindet ohne eingesetztes Kapital keine zeitgewichtete Rendite', async () => {
+    // Ohne Eintrag antwortet das Fake-Backend wie das echte für ein Portfolio ohne Bestand.
+    backend.history.delete(10)
+    await renderLoggedIn('/performance')
+    await warteAufVerlauf()
+
     expect(within(karte('Zeitgewichtete Rendite (TWR)')).getByText('–')).toBeInTheDocument()
+    // Die Benchmark hängt nicht am Bestand, ihre Linie bleibt deshalb stehen.
+    expect(within(karte('Benchmark SPY')).getByText('+11.25 %')).toBeInTheDocument()
+    expect(
+      screen.getByRole('img', {
+        name: 'Entwicklung im Vergleich, Basis 100: Portfolio ohne Werte, Benchmark SPY von 100.00 auf 111.25',
+      }),
+    ).toBeInTheDocument()
+    // Ein Depotwert von 0 ist dagegen eine Aussage und steht als 0 da, nicht als Lücke.
+    expect(
+      screen.getByRole('img', { name: /Depotwert von CHF 0.00 auf CHF 0.00/ }),
+    ).toBeInTheDocument()
   })
 
   it('fasst die Zahlungen je Jahr zusammen und stellt sie als Diagramm und Tabelle dar', async () => {

@@ -1,4 +1,5 @@
 import { apiClient } from '../api/client'
+import { zeitraumParams, type Zeitraum } from '../zeitraum/zeitraum'
 
 /**
  * Kennzahlen eines einzelnen Wertpapiers aus `SecurityRiskResponseDto`.
@@ -64,22 +65,18 @@ export interface RiskAnalysis {
 }
 
 /**
- * Zeitraum der Risikoanalyse: entweder ein Preset in Kalendertagen zurück, oder ein frei gewähltes
- * Intervall. Eine Vereinigung statt zwei paralleler Felder, damit nie versehentlich beides zugleich
- * an den Endpunkt geht - der nimmt zwar `from`/`to` vorrangig, aber eine Oberfläche, die "3 Monate"
- * UND ein eigenes Datum gleichzeitig anzeigen könnte, wäre für sich schon irreführend.
+ * Der Zeitraum liegt in `zeitraum/`, weil die Performance-Seite denselben Endpunktvertrag bedient.
+ * Hier nur weitergegeben, damit bestehende Importe aus `riskApi` nicht umziehen müssen.
  */
-export type Zeitraum = { kind: 'preset'; lookbackDays: number } | { kind: 'custom'; from: string; to: string }
+export type { Zeitraum }
 
 export async function fetchRiskAnalysis(
   portfolioId: number,
   zeitraum: Zeitraum,
   benchmark: string,
 ): Promise<RiskAnalysis> {
-  const params =
-    zeitraum.kind === 'preset'
-      ? { lookbackDays: zeitraum.lookbackDays, benchmark }
-      : { from: zeitraum.from, to: zeitraum.to, benchmark }
-  const { data } = await apiClient.get<RiskAnalysis>(`/portfolios/${portfolioId}/risk`, { params })
+  const { data } = await apiClient.get<RiskAnalysis>(`/portfolios/${portfolioId}/risk`, {
+    params: zeitraumParams(zeitraum, benchmark),
+  })
   return data
 }

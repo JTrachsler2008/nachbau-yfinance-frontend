@@ -1,5 +1,6 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
-import { fetchRiskAnalysis, type RiskAnalysis, type Zeitraum } from './riskApi'
+import { zeitraumKey, type Zeitraum } from '../zeitraum/zeitraum'
+import { fetchRiskAnalysis, type RiskAnalysis } from './riskApi'
 
 /**
  * Zeitraum und Benchmark gehören mit in den Schlüssel: dasselbe Portfolio hat über ein Jahr andere
@@ -8,13 +9,7 @@ import { fetchRiskAnalysis, type RiskAnalysis, type Zeitraum } from './riskApi'
  */
 export const riskKeys = {
   analysis: (portfolioId: number, zeitraum: Zeitraum, benchmark: string) =>
-    [
-      'portfolios',
-      portfolioId,
-      'risk',
-      zeitraum.kind === 'preset' ? zeitraum.lookbackDays : `${zeitraum.from}..${zeitraum.to}`,
-      benchmark,
-    ] as const,
+    ['portfolios', portfolioId, 'risk', zeitraumKey(zeitraum), benchmark] as const,
 }
 
 /**

@@ -280,6 +280,39 @@ export interface FakePortfolioReturns {
   moneyWeightedReturn: number | null
 }
 
+/** Die vier Reihen eines Punktes aus `PortfolioHistoryPointDto`, ohne das Datum. */
+export interface FakeHistoryValues {
+  value: number | null
+  invested: number | null
+  index: number | null
+  benchmarkIndex: number | null
+}
+
+/**
+ * `PortfolioHistoryResponseDto` ohne die Felder, die der Endpunkt aus Portfolio und Anfrage füllt
+ * (Nummer, Währung, Zeitraum, Benchmark-Symbol) und ohne die Datumsangaben der Punkte.
+ *
+ * Die Daten stempelt die Route auf den angefragten Zeitraum: der erste Wert liegt auf `from`, der
+ * letzte auf `to`, die übrigen gleichmässig dazwischen. Nur so bleibt die Antwort in sich stimmig,
+ * egal welchen Zeitraum ein Test wählt - mit festen Datumsangaben würde ein Klick auf "3 Jahre" eine
+ * Reihe liefern, die ausserhalb ihres eigenen Zeitraums liegt.
+ *
+ * Hinterlegt und nicht gerechnet, wie `risk` und `analytics`: hinter dem Endpunkt liegt eine
+ * historische Neubewertung aller gehaltenen Positionen je Rastertag samt Verkettung der Teilperioden.
+ * Diese Fachlogik hier nachzubauen hiesse, sie zu duplizieren, und der Test würde die Kopie prüfen.
+ */
+export interface FakePortfolioHistory {
+  values: FakeHistoryValues[]
+  timeWeightedReturn: number | null
+  benchmarkReturn: number | null
+  /**
+   * `null` heisst "gleich `from`" - der Regelfall. Ein Test für den Hinweis auf den verkürzten
+   * Zeitraum setzt hier ein späteres Datum, wie es das Backend bei fehlenden frühen Kursen liefert.
+   */
+  seriesFrom: string | null
+  excluded: { symbol: string; reason: string }[]
+}
+
 export interface FakeBackend {
   requests: readonly RequestLog[]
   users: readonly FakeUser[]
@@ -331,6 +364,11 @@ export interface FakeBackend {
    * Eintrag, kommen beide Werte `null` zurück (ohne Cashflows ist kein Zinsfuss bestimmbar).
    */
   returns: Map<number, FakePortfolioReturns>
+  /**
+   * Wertverlauf und zeitgewichtete Rendite je Portfolionummer (`GET /portfolios/{id}/history`).
+   * Fehlt der Eintrag, kommt der Verlauf eines Portfolios ohne Bestand zurück.
+   */
+  history: Map<number, FakePortfolioHistory>
   /**
    * Legt einen weiteren Benutzer an und gibt ihn samt Nummer zurück.
    *
@@ -726,6 +764,65 @@ function defaultReturns(): Map<number, FakePortfolioReturns> {
   return new Map([[10, { timeWeightedReturn: null, moneyWeightedReturn: 8.25 }]])
 }
 
+/**
+ * Wertverlauf eines Portfolios ohne Bestand.
+ *
+ * Punkte gibt es trotzdem, und in ihnen steht 0 und nicht `null`: ohne Position ist der Depotwert
+ * bekannt und beträgt null Franken. Was fehlt, ist die zeitgewichtete Rendite - ohne eingesetztes
+ * Kapital gibt es keine, und eine 0 % wäre die Aussage "hat nichts verdient" statt "hat nie
+ * investiert". Die Benchmark-Linie läuft weiter, sie hängt nicht am Bestand.
+ */
+function leereHistorie(): FakePortfolioHistory {
+  return {
+    values: benchmarkLinie().map((benchmarkIndex) => ({
+      value: 0,
+      invested: 0,
+      index: null,
+      benchmarkIndex,
+    })),
+    timeWeightedReturn: null,
+    benchmarkReturn: 11.25,
+    seriesFrom: null,
+    excluded: [],
+  }
+}
+
+/** Basis 100 auf 111.25, dieselben 11.25 % wie in `defaultRisk` - eine Benchmark, eine Zahl. */
+function benchmarkLinie(): number[] {
+  return [100, 104, 102.5, 108, 111.25]
+}
+
+/**
+ * Wertverlauf für Portfolio 10, abgestimmt auf `defaultValuations`: der letzte Depotwert ist dessen
+ * Marktwert von 3260, der Einsatz dessen Einstand von 2983.40. Die Lücke zwischen den beiden Linien
+ * am rechten Rand ist damit genau der Gewinn von 276.60, den die Karte oben nennt - beide Teile der
+ * Seite erzählen dieselbe Geschichte.
+ *
+ * Der Einsatz bleibt flach, weil die Vorgabe-Buchungen alle vor dem Zeitraum liegen. Die
+ * zeitgewichtete Rendite ist der Endstand der Indexlinie: 116.40 heisst +16.40 %.
+ */
+function defaultHistory(): Map<number, FakePortfolioHistory> {
+  const depotwerte = [2800, 2960, 2890, 3110, 3260]
+  const indexlinie = [100, 105.7, 103.2, 110.9, 116.4]
+  return new Map([
+    [
+      10,
+      {
+        values: depotwerte.map((value, position) => ({
+          value,
+          invested: 2983.4,
+          index: indexlinie[position],
+          benchmarkIndex: benchmarkLinie()[position],
+        })),
+        timeWeightedReturn: 16.4,
+        benchmarkReturn: 11.25,
+        seriesFrom: null,
+        excluded: [],
+      },
+    ],
+  ])
+}
+
 /** Vier Symbole reichen: eines für die Kaufsimulation, drei für Vergleich und Sparplan. */
 function defaultQuotes(): Map<string, number> {
   return new Map([
@@ -1037,6 +1134,74 @@ function leseVergleichsseite(seite: unknown): string | null {
   return Array.isArray(positions) && positions.length > 0 ? name : null
 }
 
+/**
+ * Zeitraum und Benchmark aus den Abfrageparametern, mit denselben Regeln wie `DateRange.resolve` im
+ * Backend: ein freies Intervall hat Vorrang vor `lookbackDays`, gerechnet wird bis gestern.
+ *
+ * Gemeinsam für `/risk` und `/history`, weil beide Endpunkte im Backend denselben Auflöser benutzen.
+ * Zwei Kopien hier könnten auseinanderlaufen, und dann prüfte ein Test die Abweichung des Nachbaus.
+ */
+function loeseZeitraum(
+  abfrage: Record<string, unknown>,
+): { von: string; bis: string; benchmark: string } | { fehler: string } {
+  const freiesVon = abfrage.from === undefined ? null : String(abfrage.from)
+  const freiesBis = abfrage.to === undefined ? null : String(abfrage.to)
+  let von: string
+  let bis: string
+  if (freiesVon !== null || freiesBis !== null) {
+    if (freiesVon === null || freiesBis === null) {
+      return { fehler: 'from and to must both be given for a custom range' }
+    }
+    von = freiesVon
+    bis = freiesBis
+  } else {
+    const lookbackDays = Number(abfrage.lookbackDays ?? 365)
+    if (!Number.isInteger(lookbackDays) || lookbackDays < 30 || lookbackDays > 3650) {
+      return { fehler: 'lookbackDays must be between 30 and 3650' }
+    }
+    // Wie im Dienst: gerechnet wird bis gestern, und von dort `lookbackDays` Kalendertage zurück.
+    von = vorTagen(lookbackDays + 1)
+    bis = gestern()
+  }
+  // Grossgeschrieben zurück, wie der Controller es normalisiert: ein Beta gegen "spy" und eines gegen
+  // "SPY" sind dasselbe, und die Oberfläche beschriftet damit ihre Achse.
+  const benchmark = String(abfrage.benchmark ?? 'SPY').trim().toUpperCase()
+  if (benchmark === '') {
+    return { fehler: 'benchmark must not be blank' }
+  }
+  return { von, bis, benchmark }
+}
+
+/** ISO-Datum `tage` Tage nach `datum`. Ohne `toISOString`, aus demselben Grund wie in `format/dates`. */
+function datumPlus(datum: string, tage: number): string {
+  const date = new Date(`${datum}T00:00:00`)
+  date.setDate(date.getDate() + tage)
+  const monat = String(date.getMonth() + 1).padStart(2, '0')
+  const tag = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${monat}-${tag}`
+}
+
+/**
+ * Verteilt die hinterlegten Werte gleichmässig über den Zeitraum: erster Punkt auf `von`, letzter auf
+ * `bis`.
+ *
+ * Gerundet auf ganze Tage, deshalb können bei einem sehr kurzen Zeitraum und vielen Werten zwei
+ * Punkte auf denselben Tag fallen. Für die Oberfläche ist das gleichgültig - sie zeichnet Punkte in
+ * der gelieferten Reihenfolge und rechnet nicht mit den Abständen.
+ */
+function verlaufsPunkte(
+  werte: readonly FakeHistoryValues[],
+  von: string,
+  bis: string,
+): (FakeHistoryValues & { date: string })[] {
+  const tage = Math.round((Date.parse(bis) - Date.parse(von)) / 86_400_000)
+  return werte.map((wert, position) => ({
+    date:
+      werte.length < 2 ? von : datumPlus(von, Math.round((position * tage) / (werte.length - 1))),
+    ...wert,
+  }))
+}
+
 /** Neueste zuerst, bei gleichem Datum die höhere ID, wie der Comparator im `TransactionController`. */
 function neuesteZuerst(left: FakeTransaction, right: FakeTransaction): number {
   if (left.transactionDate === right.transactionDate) {
@@ -1061,6 +1226,7 @@ export function installFakeBackend(): FakeBackend {
   const risk = defaultRisk()
   const valuations = defaultValuations()
   const returns = defaultReturns()
+  const history = defaultHistory()
   const requests: RequestLog[] = []
   const forcedStatuses = new Map<string, number>()
   let sessionValid = true
@@ -1790,30 +1956,9 @@ export function installFakeBackend(): FakeBackend {
       if (portfolio === undefined) {
         return fail(404, 'Not Found', `Portfolio ${portfolioId} not found`, config)
       }
-      const abfrage = readParams(config)
-      // Ein freies Intervall hat Vorrang vor lookbackDays, genau wie im Controller.
-      const freiesVon = abfrage.from === undefined ? null : String(abfrage.from)
-      const freiesBis = abfrage.to === undefined ? null : String(abfrage.to)
-      let von: string
-      let bis: string
-      if (freiesVon !== null || freiesBis !== null) {
-        if (freiesVon === null || freiesBis === null) {
-          return fail(400, 'Bad Request', 'from and to must both be given for a custom range', config)
-        }
-        von = freiesVon
-        bis = freiesBis
-      } else {
-        const lookbackDays = Number(abfrage.lookbackDays ?? 365)
-        if (!Number.isInteger(lookbackDays) || lookbackDays < 30 || lookbackDays > 3650) {
-          return fail(400, 'Bad Request', 'lookbackDays must be between 30 and 3650', config)
-        }
-        // Wie im Dienst: gerechnet wird bis gestern, und von dort `lookbackDays` Kalendertage zurück.
-        von = vorTagen(lookbackDays + 1)
-        bis = gestern()
-      }
-      const benchmark = String(abfrage.benchmark ?? 'SPY').trim().toUpperCase()
-      if (benchmark === '') {
-        return fail(400, 'Bad Request', 'benchmark must not be blank', config)
+      const zeitraum = loeseZeitraum(readParams(config))
+      if ('fehler' in zeitraum) {
+        return fail(400, 'Bad Request', zeitraum.fehler, config)
       }
       return Promise.resolve(
         ok(
@@ -1823,12 +1968,45 @@ export function installFakeBackend(): FakeBackend {
             currency: portfolio.baseCurrency,
             // Der Zeitraum kommt aus der Antwort in die Oberfläche, deshalb muss er hier dieselbe
             // Auflösung durchlaufen wie im Dienst und nicht einfach ein festes Datumspaar sein.
-            from: von,
-            to: bis,
-            // Grossgeschrieben zurück, wie der Controller es normalisiert: ein Beta gegen "spy" und
-            // eines gegen "SPY" sind dasselbe, und die Oberfläche beschriftet damit ihre Achse.
-            benchmarkSymbol: benchmark,
+            from: zeitraum.von,
+            to: zeitraum.bis,
+            benchmarkSymbol: zeitraum.benchmark,
             ...(risk.get(portfolioId) ?? leereRisikoanalyse()),
+          },
+          200,
+          config,
+        ),
+      )
+    }
+
+    const verlaufMatch = /^\/portfolios\/(\d+)\/history$/.exec(url)
+    if (verlaufMatch !== null && method === 'GET') {
+      const portfolioId = Number(verlaufMatch[1])
+      const portfolio = portfolios.find((candidate) => candidate.id === portfolioId)
+      if (portfolio === undefined) {
+        return fail(404, 'Not Found', `Portfolio ${portfolioId} not found`, config)
+      }
+      const zeitraum = loeseZeitraum(readParams(config))
+      if ('fehler' in zeitraum) {
+        return fail(400, 'Bad Request', zeitraum.fehler, config)
+      }
+      const verlauf = history.get(portfolioId) ?? leereHistorie()
+      const punkte = verlaufsPunkte(verlauf.values, zeitraum.von, zeitraum.bis)
+      return Promise.resolve(
+        ok(
+          {
+            portfolioId,
+            currency: portfolio.baseCurrency,
+            from: zeitraum.von,
+            to: zeitraum.bis,
+            // Ohne Punkte gibt es keinen ersten bewertbaren Tag. Sonst beginnt die Reihe am Anfang des
+            // Zeitraums, solange ein Test nichts Späteres hinterlegt hat.
+            seriesFrom: punkte.length === 0 ? null : (verlauf.seriesFrom ?? zeitraum.von),
+            benchmarkSymbol: zeitraum.benchmark,
+            timeWeightedReturn: verlauf.timeWeightedReturn,
+            benchmarkReturn: verlauf.benchmarkReturn,
+            points: punkte,
+            excluded: verlauf.excluded,
           },
           200,
           config,
@@ -2008,6 +2186,7 @@ export function installFakeBackend(): FakeBackend {
     risk,
     valuations,
     returns,
+    history,
     addUser: (username, role) => {
       const created: FakeUser = {
         id: nextId(users, 1),
