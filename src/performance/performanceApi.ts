@@ -102,8 +102,10 @@ export interface PortfolioHistoryPoint {
  * Rendite ist der Endwert derselben Kette, die die Indexlinie zeichnet. Zwei Abfragen könnten sich
  * widersprechen, und der Kursabruf je Wertpapier liefe zweimal.
  *
- * `seriesFrom` kann nach `from` liegen, etwa wenn ein gehaltenes Wertpapier erst später an die Börse
- * kam oder ein Wechselkurs für die frühen Tage fehlt. Der Grund steht dann in `excluded`.
+ * `seriesFrom` kann nach `from` liegen, und `seriesFromReason` sagt warum. Beide Gründe sehen in der
+ * Antwort gleich aus und sind in der Sache verschieden: `NOT_INVESTED` heisst, dass im Depot bis dahin
+ * nichts lag - die normale Vorgeschichte eines Depots, das im gewählten Zeitraum erst später gekauft
+ * hat. `MISSING_DATA` heisst, dass Kurse oder Wechselkurse fehlten. Nur der zweite Fall ist ein Mangel.
  */
 export interface PortfolioHistory {
   portfolioId: number
@@ -111,6 +113,8 @@ export interface PortfolioHistory {
   from: string
   to: string
   seriesFrom: string | null
+  /** `NOT_INVESTED` oder `MISSING_DATA`, `null` wenn die Reihe am angefragten ersten Tag beginnt. */
+  seriesFromReason: string | null
   benchmarkSymbol: string
   timeWeightedReturn: number | null
   benchmarkReturn: number | null
