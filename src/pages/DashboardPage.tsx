@@ -31,10 +31,11 @@ import type { Portfolio } from '../portfolios/portfolioApi'
  *
  * Marktwert und Gewinn/Verlust kommen über `GET /portfolios/{id}/valuation`, in der Basiswährung -
  * anders als der weiterhin nur je Handelswährung summierte Einstandswert darunter, weil eine Summe
- * über Währungen hinweg einen Kurs und eine Umrechnung braucht, die das Backend jetzt liefert. Für
- * zeitgewichtete Rendite (TWR) gibt es weiterhin keinen Wert: die dafür nötige Zerlegung der
- * Historie in Teilperioden mit je eigener historischer Neubewertung ist noch nicht umgesetzt (siehe
- * `PortfolioReturnsResponseDto`). Ein geschätzter Wert wäre schlimmer als keiner.
+ * über Währungen hinweg einen Kurs und eine Umrechnung braucht, die das Backend jetzt liefert. Die
+ * zeitgewichtete Rendite (TWR) steht bewusst nicht hier, sondern auf der Performance-Seite: sie ist
+ * der Endwert der Teilperioden aus `GET /portfolios/{id}/history` und hängt deshalb an einem
+ * gewählten Zeitraum, den das Dashboard nicht anbietet - anders als die geldgewichtete Rendite (MWR)
+ * oben, die immer die gesamte Historie bis heute betrachtet.
  */
 export function DashboardPage() {
   return <PortfolioGate>{(portfolio) => <Uebersicht portfolio={portfolio} />}</PortfolioGate>
@@ -198,14 +199,6 @@ function Uebersicht({ portfolio }: { portfolio: Portfolio }) {
             übrigen Positionen.
           </Alert>
         )}
-
-        <Alert severity="info">
-          <AlertTitle>Zeitgewichtete Rendite (TWR) fehlt noch</AlertTitle>
-          Dafür müsste die Historie in Teilperioden an jedem Kauf-/Verkaufsdatum zerlegt und jede
-          Periode einzeln mit den damals gültigen Kursen neu bewertet werden. Diese Zusammenstellung
-          ist noch nicht umgesetzt; ein grob geschätzter Wert stünde hier bewusst nicht, weil er sich
-          von einem korrekt berechneten nicht unterscheiden liesse.
-        </Alert>
 
         <Card>
           <CardContent>

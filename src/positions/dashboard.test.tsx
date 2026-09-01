@@ -87,12 +87,6 @@ describe('Dashboard', () => {
     expect(within(karte('Geldgewichtete Rendite (MWR)')).getByText('+8.25 %')).toBeInTheDocument()
   })
 
-  it('benennt die weiterhin fehlende zeitgewichtete Rendite statt sie zu schätzen', async () => {
-    await renderLoggedIn('/')
-
-    expect(await screen.findByText('Zeitgewichtete Rendite (TWR) fehlt noch')).toBeInTheDocument()
-  })
-
   it('warnt, wenn Positionen ohne Live-Kurs aus dem Marktwert fehlen', async () => {
     backend.valuations.set(10, {
       marketValue: 1500,
